@@ -8,9 +8,6 @@ import csv
 from tqdm import tqdm
 from tabulate import tabulate
 
-from pprint import pprint
-import json
-import sys
 
 # Load configuration from config.cfg
 config = configparser.ConfigParser()
@@ -95,8 +92,6 @@ def export_playlist_to_csv(playlist, output_dir):
         pbar = tqdm(total=total_tracks, desc="Saving to disk   ", unit="track",
                     bar_format='{l_bar}{bar}{n:>5}/{total} [{elapsed:>6}<{remaining:>6}]')
         
-        pprint(tracks)
-        
         # Iterate over each track
         for item in tracks:
             track = item['track']
@@ -112,6 +107,8 @@ def export_playlist_to_csv(playlist, output_dir):
                 item["added_by"]["id"] if "added_by" in item and "id" in item["added_by"] else "",
                 item["added_at"] if "added_at" in item else ""
             ]
+            
+            row.extend
 
             writer.writerow(row)
             pbar.update()
