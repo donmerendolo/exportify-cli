@@ -1,0 +1,5 @@
+config.cfg
+.cache
+playlists/
+Pipfile
+Pipfile.lock
