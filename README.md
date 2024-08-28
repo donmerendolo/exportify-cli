@@ -1,6 +1,6 @@
 # exportify-cli
 ![](exportify.png?raw=true "exportify-cli") \
-Export Spotify playlists to CSV. Inspired by [pavelkomarov/exportify](https://github.com/pavelkomarov/exportify).
+Export Spotify playlists to CSV directly from the terminal, inspired by [pavelkomarov/exportify](https://github.com/pavelkomarov/exportify).
 
 This tool can export all saved playlists of a user, including liked songs.
 
