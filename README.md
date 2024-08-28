@@ -30,6 +30,8 @@ $ pip install -r requirements.txt
 
 After running `python exportify.py` the first time, it should keep you authenticated so you don't have to log in each time. If you wish to log out, simply remove the `.cache` file.
 
+---
+
 Tested on Windows with Python 3.11.9.
 
 ## Usage:
