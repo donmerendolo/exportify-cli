@@ -42,6 +42,8 @@ def export_playlist_to_csv(playlist, output_dir):
     # Ensure the output directory exists
     os.makedirs(output_dir, exist_ok=True)
     
+    print(playlist['name'])
+    
     # Construct the file path
     playlist_filename = playlist['name'].replace(' ', '_').lower() + ".csv"
     file_path = os.path.join(output_dir, playlist_filename)
