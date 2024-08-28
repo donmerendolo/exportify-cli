@@ -26,7 +26,7 @@ $ pip install -r requirements.txt
    - Replace `CLIENT_ID`, `CLIENT_SECRET`, and `REDIRECT_URI` in the `config.cfg.RENAME` file.
    - These values can be found in the "Settings" section of your app on the Spotify Developer Dashboard.
 
-6. **Rename config.cfg.RENAME to config.cfg**
+6. **Rename `config.cfg.RENAME` to `config.cfg`**
 
 After running `python exportify.py` the first time, it should keep you authenticated so you don't have to log in each time. If you wish to log out, simply remove the `.cache` file.
 
