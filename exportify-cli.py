@@ -12,6 +12,29 @@ from tabulate import tabulate
 # Load configuration from config.cfg
 config = configparser.ConfigParser()
 config.read('config.cfg')
+if not os.path.exists('config.cfg'):
+    print("""config.cfg not found. Let's create it.
+
+1. Go to Spotify Developer Dashboard (https://developer.spotify.com/dashboard).
+2. Create a new app.
+3. Set a name and description for your app.
+4. Add a redirect URI (e.g. http://localhost:8080).
+
+Now after creating the app, press the Settings button on the upper right corner.
+Copy the Client ID, Client Secret and Redirect URI and paste them below.
+""")
+    client_id = input("Client ID: ")
+    client_secret = input("Client Secret: ")
+    redirect_uri = input("Redirect URI: ")
+
+    config['spotify'] = {
+        'client_id': client_id,
+        'client_secret': client_secret,
+        'redirect_uri': redirect_uri
+    }
+
+    with open('config.cfg', 'w') as configfile:
+        config.write(configfile)
 
 client_id = config.get('spotify', 'client_id')
 client_secret = config.get('spotify', 'client_secret')
@@ -160,9 +183,12 @@ def main():
     parser.add_argument('-l', '--list', action='store_true', help="List all playlists")
 
     args = parser.parse_args()
-
+    
     output_dir = args.output
-
+    
+    # This line opens the Spotify authorization page in the browser
+    sp.current_user()
+        
     if args.list:
         list_playlists()
     elif args.all:

@@ -3,3 +3,6 @@ config.cfg
 playlists/
 Pipfile
 Pipfile.lock
+dist/
+build/
+*.spec

@@ -1,4 +1,0 @@
-[spotify]
-client_id = CLIENT_ID
-client_secret = CLIENT_SECRET
-redirect_uri = REDIRECT_URI # (http://localhost:3000/callback works for me)

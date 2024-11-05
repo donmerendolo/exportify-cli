@@ -1,10 +1,11 @@
 # exportify-cli
-![](exportify.png?raw=true "exportify-cli") \
+![](image.png?raw=true "exportify-cli") \
 Export Spotify playlists to CSV directly from the terminal, inspired by [pavelkomarov/exportify](https://github.com/pavelkomarov/exportify).
 
 This tool can export all saved playlists, including liked songs.
 
 ## Installation:
+**If you use Windows, you can use the binary in [releases](https://github.com/donmerendolo/exportify-cli/releases/latest) and skip steps 1 and 2.**
 1. **Clone this repository:**
 ```bash
 $ git clone https://github.com/donmerendolo/exportify-cli.git
@@ -17,18 +18,17 @@ $ pip install -r requirements.txt
 ```
 (recommended to use a virtual environment)
   
-3. **Create an app on Spotify Developer Dashboard:**
-   - Go to [Spotify Developer Dashboard](https://developer.spotify.com/dashboard).
-   - Set a name and description for your app.
-   - In the "Redirect URIs" field, use: `http://localhost:3000/callback` (for example).
+3. **Set up Client ID, Client Secret and Redirect URI:**
 
-4. **Configure your credentials:**
-   - Replace `CLIENT_ID`, `CLIENT_SECRET`, and `REDIRECT_URI` in the `config.cfg.RENAME` file.
-   - These values can be found in the "Settings" section of your app on the Spotify Developer Dashboard.
+The first time you run exportify-cli, it will guide you through the setup:
+```
+1. Go to Spotify Developer Dashboard (https://developer.spotify.com/dashboard).
+2. Create a new app.
+3. Set a name and description for your app.
+4. Add a redirect URI (e.g. http://localhost:8080).
+```
 
-6. **Rename `config.cfg.RENAME` to `config.cfg`**
-
-After running `python exportify.py` the first time, it should keep you authenticated so you don't have to log in each time. If you wish to log out, simply remove the `.cache` file.
+After running `python exportify-cli.py` or `exportify-cli.exe` the first time, it should keep you authenticated so you don't have to log in each time. If you wish to log out, simply remove the `.cache` file.
 
 ---
 
