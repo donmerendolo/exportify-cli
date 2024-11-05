@@ -19,9 +19,9 @@ redirect_uri = config.get('spotify', 'redirect_uri')
 
 # Spotify authentication
 sp = spotipy.Spotify(auth_manager=SpotifyOAuth(client_id=client_id,
-                                               client_secret=client_secret,
-                                               redirect_uri=redirect_uri,
-                                               scope="playlist-read-private playlist-read-collaborative user-library-read"))
+    client_secret=client_secret,
+    redirect_uri=redirect_uri,
+    scope="playlist-read-private playlist-read-collaborative user-library-read"))
 
 def rate_limited_request(func, *args, **kwargs):
     """Handles rate limiting by retrying after the specified delay."""
@@ -45,7 +45,9 @@ def export_playlist_to_csv(playlist, output_dir):
     print(playlist['name'])
     
     # Construct the file path
-    playlist_filename = playlist['name'].replace(' ', '_').lower() + ".csv"
+    # Sanitize the playlist name to create a safe filename
+    sanitized_name = "".join(c if c.isalnum() or c in (' ', '_', '-') else '_' for c in playlist['name'])
+    playlist_filename = sanitized_name.replace(' ', '_').lower() + ".csv"
     file_path = os.path.join(output_dir, playlist_filename)
     
     with open(file_path, mode='w', newline='', encoding='utf-8') as file:
