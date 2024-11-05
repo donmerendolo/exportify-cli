@@ -26,6 +26,9 @@ The first time you run exportify-cli, it will guide you through the setup:
 2. Create a new app.
 3. Set a name and description for your app.
 4. Add a redirect URI (e.g. http://localhost:8080).
+
+Now after creating the app, press the Settings button on the upper right corner.
+Copy the Client ID, Client Secret and Redirect URI and paste them below.
 ```
 
 After running `python exportify-cli.py` or `exportify-cli.exe` the first time, it should keep you authenticated so you don't have to log in each time. If you wish to log out, simply remove the `.cache` file.
