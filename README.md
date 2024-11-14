@@ -8,13 +8,13 @@ This tool can export all saved playlists, including liked songs.
 **If you use Windows, you can use the [binary](https://github.com/donmerendolo/exportify-cli/releases/latest/download/exportify-cli.exe) in releases and skip steps 1 and 2.**
 1. **Clone this repository:**
 ```bash
-$ git clone https://github.com/donmerendolo/exportify-cli.git
+git clone https://github.com/donmerendolo/exportify-cli.git
 ```
 
 2. **Install the required packages:**
 ```bash
-$ cd exportify-cli
-$ pip install -r requirements.txt
+cd exportify-cli
+pip install -r requirements.txt
 ```
 (recommended to use a virtual environment)
   
