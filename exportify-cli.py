@@ -172,7 +172,7 @@ def list_playlists():
     }
     playlists.insert(0, liked_songs)
     
-    table_data = [[playlist['name'], playlist['id'], playlist['tracks']['total']] for playlist in playlists]
+    table_data = [[playlist['name'], playlist['id'], playlist['tracks']['total']] for playlist in playlists if playlist is not None]
     print(tabulate(table_data, headers=["Name", "ID", "Tracks"], tablefmt="simple"))
 
 def main():
