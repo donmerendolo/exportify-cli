@@ -31,7 +31,7 @@ Now after creating the app, press the Settings button on the upper right corner.
 Copy the Client ID, Client Secret and Redirect URI and paste them below.
 ```
 
-After running `python exportify-cli.py` (or [`exportify-cli.exe`](https://github.com/donmerendolo/exportify-cli/releases/latest/download/exportify-cli.exe) if you use Windows) the first time, it should keep you authenticated so you don't have to log in each time. If you wish to log out, simply remove the `.cache` file.
+After running `python exportify-cli.py` (or [`exportify-cli.exe`](https://github.com/donmerendolo/exportify-cli/releases/latest/download/exportify-cli.exe) if you use the Windows binary) the first time, it should keep you authenticated so you don't have to log in each time. If you wish to log out, simply remove the `.cache` file.
 
 ---
 
@@ -51,4 +51,19 @@ options:
   -o OUTPUT, --output OUTPUT
                         Specify the output directory (default: ./playlists/)
   -l, --list            List all playlists
+```
+
+### Examples:
+```
+# List all saved playlists
+python exportify-cli.py --list
+
+# Export all saved playlists, including liked songs
+exportify-cli.exe --all
+
+# Export playlist whose name is "COCHE"
+python exportify-cli.py -p COCHE
+
+# Export playlist whose ID is "2VqAIceMCzBRhzq6zVmDZw"
+exportify-cli.exe -p 2VqAIceMCzBRhzq6zVmDZw
 ```

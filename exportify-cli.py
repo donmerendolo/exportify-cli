@@ -207,7 +207,7 @@ def main():
             playlists.extend(rate_limited_request(sp.current_user_playlists)['items'])
             playlist = next((
                 p for p in playlists
-                if p['name'] == playlist_name_or_id or p['id'] == playlist_name_or_id), None)
+                if (p is not None) and (p['name'] == playlist_name_or_id or p['id'] == playlist_name_or_id) ), None)
             
             if playlist:
                 export_playlist_to_csv(playlist, output_dir)
