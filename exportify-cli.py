@@ -7,7 +7,7 @@ import time
 import csv
 from tqdm import tqdm
 from tabulate import tabulate
-
+from pprint import pprint
 
 # Load configuration from config.cfg
 config = configparser.ConfigParser()
@@ -59,6 +59,18 @@ def rate_limited_request(func, *args, **kwargs):
                 print()
             else:
                 raise
+            
+def safe_get(d, *keys):
+    for key in keys:
+        if not isinstance(d, dict):
+            return ""
+        d = d.get(key, "")
+    return d if d is not None else ""
+
+def safe_join(items, key):
+    if not items:
+        return ""
+    return ",".join(str(safe_get(item, key)) for item in items if item)
 
 def export_playlist_to_csv(playlist, output_dir):
     """Exports a playlist's tracks to a CSV file."""
@@ -85,23 +97,24 @@ def export_playlist_to_csv(playlist, output_dir):
                    'Valence', 'Tempo', 'Time Signature']
         writer.writerow(headers)
         
+        bar_format = '{desc}{percentage:3.0f}%|{bar}| {n_fmt:>4}/{total_fmt:>4} [{elapsed:>6}<{remaining:>6}]'
+        
         # Initialize tqdm progress bar for fetching the playlist
-        pbar = tqdm(desc="Fetching playlist", unit="track",
-                    bar_format='{l_bar}{bar}{n:>5}/{total} [{elapsed:>6}<{remaining:>6}]')
+        pbar = tqdm(desc="Fetching playlist: ",
+                    unit="track",
+                    bar_format=bar_format)
 
         # Fetch all tracks using pagination
         if playlist['id'] == 'liked_songs':
             results = rate_limited_request(sp.current_user_saved_tracks)
-            tracks = results['items']
-            total_tracks = results['total']
         else:
             results = rate_limited_request(sp.playlist_tracks, playlist['id'])
-            tracks = results['items']
-            total_tracks = results['total']
+        tracks = results['items']
+        total_tracks = results['total']
         
         # Set the total number of tracks after the first fetch
         pbar.total = total_tracks
-        pbar.refresh()  # Refresh the progress bar to update the total
+        pbar.refresh()
 
         # Update the progress bar with the number of tracks fetched so far
         pbar.update(len(tracks))
@@ -110,35 +123,57 @@ def export_playlist_to_csv(playlist, output_dir):
         while results['next']:
             results = rate_limited_request(sp.next, results)
             tracks.extend(results['items'])
-            pbar.update(len(results['items']))  # Update the progress bar
+            pbar.update(len(results['items']))
 
         # Close the progress bar after the loop
         pbar.close()
         
         # Initialize tqdm progress bar for saving the playlist
-        pbar = tqdm(total=total_tracks, desc="Saving to disk   ", unit="track",
-                    bar_format='{l_bar}{bar}{n:>5}/{total} [{elapsed:>6}<{remaining:>6}]')
+        pbar = tqdm(total=total_tracks, desc="Saving to disk:    ", unit="track",
+                    bar_format=bar_format)
         
         # Iterate over each track
         for item in tracks:
-            track = item['track']
-            row = [
-                track["id"] if "id" in track else "",
-                ",".join([artist["id"] if "id" in artist else "" for artist in track["artists"]]),
-                track["name"] if "name" in track else "",
-                track["album"]["name"] if "album" in track and "name" in track["album"] else "",
-                ",".join([artist["name"] if "name" in artist else "" for artist in track["artists"]]),
-                track["album"]["release_date"] if "album" in track and "release_date" in track["album"] else None,
-                track["duration_ms"] if "duration_ms" in track else "",
-                track["popularity"] if "popularity" in track else "",
-                item["added_by"]["id"] if "added_by" in item and "id" in item["added_by"] else "",
-                item["added_at"] if "added_at" in item else ""
-            ]
-            
-            row.extend
+            try:
+                track = item.get('track', {})
+                if not track:  # Skip if track is None or empty
+                    continue
+                
+                # Safe get for nested dictionaries
+                def safe_get(d, *keys):
+                    for key in keys:
+                        if not isinstance(d, dict):
+                            return ""
+                        d = d.get(key, "")
+                    return d if d is not None else ""
 
-            writer.writerow(row)
-            pbar.update()
+                # Safe get for lists
+                def safe_join(items, key):
+                    if not items:
+                        return ""
+                    return ",".join(str(safe_get(item, key)) for item in items if item)
+
+                artists = track.get('artists', [])
+                artists = [a for a in artists if a is not None]  # Filter out None artists
+                
+                row = [
+                    safe_get(track, "id"),
+                    safe_join(artists, "id"),
+                    safe_get(track, "name"),
+                    safe_get(track, "album", "name"),
+                    safe_join(artists, "name"),
+                    safe_get(track, "album", "release_date"),
+                    safe_get(track, "duration_ms"),
+                    safe_get(track, "popularity"),
+                    safe_get(item, "added_by", "id"),
+                    safe_get(item, "added_at")
+                ]
+
+                writer.writerow(row)
+                pbar.update()
+            except Exception as e:
+                print(f"\nError processing track: {str(e)}")
+                continue
             
         pbar.close()
             
