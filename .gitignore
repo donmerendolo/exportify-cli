@@ -1,8 +1,10 @@
+__pycache__/
+.ruff_cache
+.venv
 config.cfg
 .cache
 playlists/
-Pipfile
-Pipfile.lock
+*.log
 dist/
 build/
 *.spec
