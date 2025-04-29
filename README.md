@@ -5,7 +5,7 @@ Export Spotify playlists to CSV directly from the terminal, inspired by [pavelko
 This tool can export all saved playlists, including liked songs.
 
 ## Installation:
-**If you use Windows, you can use the [binary](https://github.com/donmerendolo/exportify-cli/releases/latest/download/exportify-cli.exe) in releases and skip steps 1 and 2.**
+**If you use Windows, you can download the [binary](https://github.com/donmerendolo/exportify-cli/releases/latest/download/exportify-cli.exe) and skip steps 1 and 2. It's recommended to place it in a dedicated folder for better organization.**
 1. **Clone this repository:**
 ```bash
 git clone https://github.com/donmerendolo/exportify-cli.git
@@ -22,6 +22,8 @@ pip install -r requirements.txt
 
 The first time you run exportify-cli, it will guide you through the setup:
 ```
+File "config.cfg" not found. Let's create it.
+
 1. Go to Spotify Developer Dashboard (https://developer.spotify.com/dashboard).
 2. Create a new app.
 3. Set a name and description for your app.

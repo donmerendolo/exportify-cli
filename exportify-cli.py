@@ -31,7 +31,7 @@ class SpotifyExporter:
         self, config: configparser.ConfigParser, config_path: str
     ) -> configparser.ConfigParser:
         """Create a new configuration file with user input."""
-        print("""config.cfg not found. Let's create it.
+        print("""File "config.cfg" not found. Let's create it.
 
 1. Go to Spotify Developer Dashboard (https://developer.spotify.com/dashboard).
 2. Create a new app.
