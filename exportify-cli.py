@@ -1,7 +1,6 @@
 import os
 import argparse
 import configparser
-import time
 from typing import Dict, List
 from pathlib import Path
 import spotipy
@@ -9,45 +8,6 @@ from spotipy.oauth2 import SpotifyOAuth
 import csv
 from tqdm import tqdm
 from tabulate import tabulate
-from functools import wraps
-
-
-def rate_limited(func, max_retries=5):
-    @wraps(func)
-    def wrapper(*args, **kwargs):
-        retries = 0
-        wait = 1  # Initial wait time in seconds
-        while retries < max_retries:
-            try:
-                return func(*args, **kwargs)
-            except spotipy.SpotifyException as e:
-                if e.http_status == 429:
-                    retry_after = int(e.headers.get("Retry-After", wait))
-                    wait = max(wait, retry_after)  # Use server-specified wait if provided
-                    for remaining in range(wait, -1, -1):
-                        print(
-                            f"Rate limited. Retrying in {remaining} seconds...",
-                            end="\r",
-                        )
-                        time.sleep(1)
-                    retries += 1
-                    wait = min(wait * 2, 60)  # Exponential backoff with a cap of 60 seconds
-                else:
-                    raise
-        raise RuntimeError("Maximum retry limit reached. Aborting.")
-
-    return wrapper
-
-
-class RateLimitedSpotify:
-    def __init__(self, client):
-        self._client = client
-
-    def __getattr__(self, name):
-        attr = getattr(self._client, name)
-        if callable(attr):
-            return rate_limited(attr)
-        return attr
 
 
 class SpotifyExporter:
@@ -97,7 +57,7 @@ Copy the Client ID, Client Secret and Redirect URI and paste them below.
 
         return config
 
-    def _init_spotify_client(self) -> RateLimitedSpotify:
+    def _init_spotify_client(self) -> spotipy.Spotify:
         """Initialize Spotify client with OAuth."""
         original = spotipy.Spotify(
             auth_manager=SpotifyOAuth(
@@ -105,15 +65,16 @@ Copy the Client ID, Client Secret and Redirect URI and paste them below.
                 client_secret=self.config.get("spotify", "client_secret"),
                 redirect_uri=self.config.get("spotify", "redirect_uri"),
                 scope="playlist-read-private playlist-read-collaborative user-library-read",
-            )
+            ),
+            retries=20
         )
-        return RateLimitedSpotify(original)
+        return original
 
     def export_playlist(self, playlist: Dict, output_dir: str):
         """Export a single playlist."""
         output_path = Path(output_dir)
         output_path.mkdir(parents=True, exist_ok=True)
-
+        
         # Create sanitized filename
         playlist_filename = (
             "".join(
@@ -129,20 +90,16 @@ Copy the Client ID, Client Secret and Redirect URI and paste them below.
 
         playlist_items = self._fetch_playlist_items(playlist)
         playlist_items_albums = self._fetch_album_details(playlist_items)
-        tracks = []
+        
+        album_map = {album.get("id", ""): album for album in playlist_items_albums if album}
 
         tracks = []
         for playlist_item in playlist_items:
             track_data = playlist_item.get("track", {})
+            if not track_data:
+                continue
             album_id = track_data.get("album", {}).get("id", "")
-            album_data = next(
-                (
-                    album_item
-                    for album_item in playlist_items_albums
-                    if album_item["id"] == album_id
-                ),
-                None,
-            )
+            album_data = album_map.get(album_id, {})
             tracks.append(
                 self._spotify_data_to_nice_dict(playlist_item, track_data, album_data)
             )
@@ -218,13 +175,14 @@ Copy the Client ID, Client Secret and Redirect URI and paste them below.
 
     def _fetch_album_details(self, playlist_items: List[Dict]) -> List[Dict]:
         """Fetch album details for all tracks in the playlist."""
-        album_ids = list(
-            {
+        album_ids = [
+            album_id for album_id in {
                 item["track"]["album"]["id"]
                 for item in playlist_items
                 if item.get("track")
             }
-        )
+            if album_id
+        ]
 
         with tqdm(
             total=len(album_ids),
