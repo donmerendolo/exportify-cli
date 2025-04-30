@@ -4,12 +4,44 @@ import configparser
 import time
 from typing import Dict, List
 from pathlib import Path
-
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
 import csv
 from tqdm import tqdm
 from tabulate import tabulate
+from functools import wraps
+
+
+def rate_limited(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        while True:
+            try:
+                return func(*args, **kwargs)
+            except spotipy.SpotifyException as e:
+                if e.http_status == 429:
+                    wait = int(e.headers.get("Retry-After", 60))
+                    for remaining in range(wait, -1, -1):
+                        print(
+                            f"Rate limited. Retrying in {remaining} seconds...",
+                            end="\r",
+                        )
+                        time.sleep(1)
+                else:
+                    raise
+
+    return wrapper
+
+
+class RateLimitedSpotify:
+    def __init__(self, client):
+        self._client = client
+
+    def __getattr__(self, name):
+        attr = getattr(self._client, name)
+        if callable(attr):
+            return rate_limited(attr)
+        return attr
 
 
 class SpotifyExporter:
@@ -52,9 +84,9 @@ Copy the Client ID, Client Secret and Redirect URI and paste them below.
 
         return config
 
-    def _init_spotify_client(self) -> spotipy.Spotify:
+    def _init_spotify_client(self) -> RateLimitedSpotify:
         """Initialize Spotify client with OAuth."""
-        return spotipy.Spotify(
+        original = spotipy.Spotify(
             auth_manager=SpotifyOAuth(
                 client_id=self.config.get("spotify", "client_id"),
                 client_secret=self.config.get("spotify", "client_secret"),
@@ -62,24 +94,7 @@ Copy the Client ID, Client Secret and Redirect URI and paste them below.
                 scope="playlist-read-private playlist-read-collaborative user-library-read",
             )
         )
-
-    def _rate_limited_request(self, func, *args, **kwargs):
-        """Execute a rate-limited Spotify API request with automatic retry."""
-        while True:
-            try:
-                return func(*args, **kwargs)
-            except spotipy.SpotifyException as e:
-                if e.http_status == 429:  # Rate limit exceeded
-                    self._handle_rate_limit()
-                else:
-                    raise
-
-    def _handle_rate_limit(self, wait_time: int = 60):
-        """Handle rate limiting with a countdown timer."""
-        for remaining in range(wait_time, -1, -1):
-            print(f"Rate limited. Retrying in {remaining} seconds...", end="\r")
-            time.sleep(1)
-        print()
+        return RateLimitedSpotify(original)
 
     def _safe_get(self, d: Dict, *keys) -> str:
         """Safely get nested dictionary values."""
@@ -122,11 +137,9 @@ Copy the Client ID, Client Secret and Redirect URI and paste them below.
 
         # Initial request
         results = (
-            self._rate_limited_request(self.spotify.current_user_saved_tracks)
+            self.spotify.current_user_saved_tracks()
             if playlist["id"] == "liked_songs"
-            else self._rate_limited_request(
-                self.spotify.playlist_tracks, playlist["id"]
-            )
+            else self.spotify.playlist_tracks(playlist["id"])
         )
 
         total_tracks = results["total"]
@@ -149,81 +162,65 @@ Copy the Client ID, Client Secret and Redirect URI and paste them below.
                 if not results["next"]:
                     break
 
-                results = self._rate_limited_request(self.spotify.next, results)
+                results = self.spotify.next(results)
 
         return tracks
 
     def _write_tracks_to_csv(
-        self, tracks: List[Dict], file_path: Path, playlist_name: str
+        self, track_info: List[Dict], file_path: Path, playlist_name: str
     ):
-        """Write tracks to CSV file with progress bar."""
-        headers = [
-            "Spotify ID",
-            "Artist IDs",
-            "Track Name",
-            "Album Name",
-            "Artist Name(s)",
-            "Release Date",
-            "Duration (ms)",
-            "Popularity",
-            "Added By",
-            "Added At",
-            "Genres",
-            "Danceability",
-            "Energy",
-            "Key",
-            "Loudness",
-            "Mode",
-            "Speechiness",
-            "Acousticness",
-            "Instrumentalness",
-            "Liveness",
-            "Valence",
-            "Tempo",
-            "Time Signature",
-        ]
+        """Write tracks to CSV file with clean, DRY extractor definitions."""
+        # Define each column with a header and a small extractor function
+        fields = {
+            "Track URI": lambda track: self._safe_get(track, "uri"),
+            "Artist URI(s)": lambda artists: self._safe_join(artists, "uri"),
+            "Album URI(s)": lambda album: self._safe_join(album, "uri"),
+            "Track Name": lambda track: self._safe_get(track, "name"),
+            "Album Name": lambda track: self._safe_get(track, "album", "name"),
+            "Artist Name(s)": lambda artists: self._safe_join(artists, "name"),
+            "Release Date": lambda track: self._safe_get(
+                track, "album", "release_date"
+            ),
+            "Duration (ms)": lambda track: self._safe_get(track, "duration_ms"),
+            "Popularity": lambda track: self._safe_get(track, "popularity"),
+            "Added By": lambda item: self._safe_get(item, "added_by", "id"),
+            "Added At": lambda item: self._safe_get(item, "added_at"),
+            "Genres": lambda: "",
+            "Record Label": lambda: "",
+            "Danceability": lambda: "",
+            "Energy": lambda: "",
+            "Key": lambda: "",
+            "Loudness": lambda: "",
+            "Mode": lambda: "",
+            "Speechiness": lambda: "",
+            "Acousticness": lambda: "",
+            "Instrumentalness": lambda: "",
+            "Liveness": lambda: "",
+            "Valence": lambda: "",
+            "Tempo": lambda: "",
+            "Time Signature": lambda: "",
+        }
 
-        with open(file_path, mode="w", newline="", encoding="utf-8") as file:
-            writer = csv.writer(file)
+        headers = fields.keys()
+        with open(file_path, mode="w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
             writer.writerow(headers)
 
-            rows = []
-
-            for item in tracks:
+            for item in track_info:
                 try:
-                    track = item.get("track", {})
-                    if not track:
+                    if not item.get("track"):
                         continue
-
-                    artists = [a for a in track.get("artists", []) if a is not None]
-
-                    row = [
-                        self._safe_get(track, "id"),
-                        self._safe_join(artists, "id"),
-                        self._safe_get(track, "name"),
-                        self._safe_get(track, "album", "name"),
-                        self._safe_join(artists, "name"),
-                        self._safe_get(track, "album", "release_date"),
-                        self._safe_get(track, "duration_ms"),
-                        self._safe_get(track, "popularity"),
-                        self._safe_get(item, "added_by", "id"),
-                        self._safe_get(item, "added_at"),
-                    ]
-
-                    rows.append(row)
-
+                    row = fields.values()(item)
+                    writer.writerow(row)
                 except Exception as e:
-                    print(f"\nError processing track: {str(e)}")
+                    print(f"\nError processing track: {e}")
                     continue
-            writer.writerows(rows)
 
         print(f"Exported playlist '{playlist_name}' to \"{file_path}\"\n")
 
     def get_all_playlists(self) -> List[Dict]:
         """Get all user playlists including Liked Songs."""
-        playlists = self._rate_limited_request(self.spotify.current_user_playlists)[
-            "items"
-        ]
+        playlists = self.spotify.current_user_playlists()["items"]
 
         # Add Liked Songs as a special playlist
         liked_songs = {
@@ -257,6 +254,12 @@ def main():
         help="Specify the output directory (default: ./playlists/)",
     )
     parser.add_argument("-l", "--list", action="store_true", help="List all playlists")
+    parser.add_argument(
+        "-i",
+        "--id",
+        action="store_true",
+        help="Include albums and artist(s) IDs in the exported fields",
+    )
 
     args = parser.parse_args()
 
