@@ -11,6 +11,9 @@ from tqdm import tqdm
 from tabulate import tabulate
 from functools import wraps
 
+from pprint import pprint
+import json
+
 
 def rate_limited(func):
     @wraps(func)
@@ -115,7 +118,7 @@ Copy the Client ID, Client Secret and Redirect URI and paste them below.
         """Safely join list items with a specific key."""
         if not items:
             return ""
-        return ",".join(str(self._safe_get(item, key)) for item in items if item)
+        return ",".join(str(track_data.get(key)) for item in items if item)
 
     def export_playlist(self, playlist: Dict, output_dir: str):
         """Export a single playlist to CSV."""
@@ -135,13 +138,60 @@ Copy the Client ID, Client Secret and Redirect URI and paste them below.
 
         file_path = output_path / playlist_filename
 
-        tracks = self._fetch_playlist_tracks(playlist)
+        tracks = self._fetch_playlist_items(playlist)
         self._write_tracks_to_csv(tracks, file_path, playlist["name"])
 
-    def _fetch_playlist_tracks(self, playlist: Dict) -> List[Dict]:
-        """Fetch all tracks from a playlist with progress bar."""
-        tracks = []
+    def _spotify_data_to_nice_dict(self, track_data: Dict, album_data: List[Dict]) -> Dict:
+        """Convert Spotify data to a more readable dictionary."""
+        track = {
+            "Track URI": track_data.get("uri", ""),
+            "Artist URI(s)": "", #self._safe_join(item, "artists", "uri"),
+            "Album URI": album_data.get("uri", ""),
+            "Track Name": track_data.get("name", ""),
+            "Album Name": track_data.get("album", {}).get("name", ""),
+            "Artist Name(s)": "", #self._safe_join(item._safe_get(item, "artists"), "name"),
+            "Release Date": track_data.get("album", {}).get("release_date", ""),
+            "Duration (ms)": track_data.get("duration_ms"),
+            "Popularity": track_data.get("popularity", ""),
+            "Added By": track_data.get("added_by", {}).get("id", ""),
+            "Added At": track_data.get("added_at", ""),
+            "Record Label": album_data.get("album", {}).get("label", ""),
+            "Track ISRC": track_data.get("external_ids", {}).get("isrc", ""),
+            "Track EAN": track_data.get("external_ids", {}).get("ean", ""),
+            "Track UPC": track_data.get("external_ids", {}).get("upc", ""),
+            "Album ISRC": album_data.get("external_ids", {}).get("isrc", ""),
+            "Album EAN": album_data.get("external_ids", {}).get("ean", ""),
+            "Album UPC": album_data.get("external_ids", {}).get("upc", ""),
+        }
+        pprint(track_data, sort_dicts=False)
+        print("\n---------------------------------------\n")
+        pprint(album_data, sort_dicts=False)
+        print("\n---------------------------------------\n")
+        pprint(track, sort_dicts=False)
+        raise SystemExit
+        
+        if not self.include_ids:
+            track.pop("Artist URI(s)")
+            track.pop("Album URI")
 
+        if not self.external_ids:
+            track.pop("Track ISRC")
+            track.pop("Track EAN")
+            track.pop("Track UPC")
+            track.pop("Album ISRC")
+            track.pop("Album EAN")
+            track.pop("Album UPC")
+        
+        return track
+        
+
+    def _fetch_playlist_items(self, playlist: Dict) -> List[Dict]:
+        """Fetch all tracks from a playlist with progress bar."""
+        if len(playlist["name"]) > 22:
+            formatted_playlist_name = playlist["name"][:19] + "...: "
+        else:
+            formatted_playlist_name = (playlist["name"] + ": ").ljust(24)
+            
         # Initial request
         results = (
             self.spotify.current_user_saved_tracks()
@@ -149,21 +199,17 @@ Copy the Client ID, Client Secret and Redirect URI and paste them below.
             else self.spotify.playlist_tracks(playlist["id"])
         )
 
-        total_tracks = results["total"]
-
-        if len(playlist["name"]) > 22:
-            formatted_playlist_name = playlist["name"][:19] + "...: "
-        else:
-            formatted_playlist_name = (playlist["name"] + ": ").ljust(24)
+        total_items = results["total"]
 
         with tqdm(
-            total=total_tracks,
+            total=total_items,
             desc=formatted_playlist_name,
             unit="track",
             bar_format="{desc}{percentage:3.0f}%|{bar}| {n_fmt:>4}/{total_fmt:>4} [{elapsed:>6}<{remaining:>6}]",
         ) as pbar:
+            items = []
             while True:
-                tracks.extend(results["items"])
+                items.extend(results["items"])
                 pbar.update(len(results["items"]))
 
                 if not results["next"]:
@@ -171,33 +217,51 @@ Copy the Client ID, Client Secret and Redirect URI and paste them below.
 
                 results = self.spotify.next(results)
 
-        return tracks
+        album_ids = list(
+            {item["track"]["album"]["id"] for item in items if item.get("track")}
+        )
+
+        with tqdm(
+            total=len(album_ids),
+            desc="Fetching album details: ",
+            unit="album",
+            bar_format="{desc}{percentage:3.0f}%|{bar}| {n_fmt:>4}/{total_fmt:>4} [{elapsed:>6}<{remaining:>6}]",
+        ) as pbar:
+            albums = []
+            sliced_album_ids = [
+                album_ids[i : i + 20] for i in range(0, len(album_ids), 20)
+            ]
+            for slice in sliced_album_ids:
+                album_results = self.spotify.albums(slice)
+                albums.extend(album_results["albums"])
+                pbar.update(len(album_results["albums"]))
+                
+        tracks = []
+        for item in items:
+            track_data = item.get("track", {})
+            album_id = track_data.get("album", {}).get("id", "")
+            album_data = next(
+                (album for album in albums if album["id"] == album_id), None
+            )
+            tracks.append(
+                self._spotify_data_to_nice_dict(track_data, album_data)
+            )
+            
+        pprint(tracks[:3])
+            
+            
+
+        raise SystemExit
+
+        return items
 
     def _write_tracks_to_csv(
         self, track_info: List[Dict], file_path: Path, playlist_name: str
     ):
-        """Write tracks to CSV file with clean, DRY extractor definitions."""
-        # Define each column with a header and a small extractor function
-        fields = {
-            "Track URI": lambda track: self._safe_get(track, "uri"),
-            "Artist URI(s)": lambda artists: self._safe_join(artists, "uri"),
-            "Album URI(s)": lambda album: self._safe_join(album, "uri"),
-            "Track Name": lambda track: self._safe_get(track, "name"),
-            "Album Name": lambda track: self._safe_get(track, "album", "name"),
-            "Artist Name(s)": lambda artists: self._safe_join(artists, "name"),
-            "Release Date": lambda track: self._safe_get(
-                track, "album", "release_date"
-            ),
-            "Duration (ms)": lambda track: self._safe_get(track, "duration_ms"),
-            "Popularity": lambda track: self._safe_get(track, "popularity"),
-            "Added By": lambda item: self._safe_get(item, "added_by", "id"),
-            "Added At": lambda item: self._safe_get(item, "added_at"),
-            "ISRC": lambda track: self._safe_get(track, "external_ids", "isrc"),
-            "EAN": lambda track: self._safe_get(track, "external_ids", "ean"),
-            "UPC": lambda track: self._safe_get(track, "external_ids", "upc"),
-        }
+        """Write tracks to CSV file."""
 
-        headers = fields.keys()
+        headers = track_info[0].keys() if track_info else []
+        # MODIFY
         with open(file_path, mode="w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
             writer.writerow(headers)
