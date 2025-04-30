@@ -45,8 +45,15 @@ class RateLimitedSpotify:
 
 
 class SpotifyExporter:
-    def __init__(self, config_path: str = "config.cfg"):
+    def __init__(
+        self,
+        config_path: str = "config.cfg",
+        include_ids: bool = False,
+        external_ids: bool = False,
+    ):
         self.config = self._load_config(config_path)
+        self.include_ids = include_ids
+        self.external_ids = external_ids
         self.spotify = self._init_spotify_client()
 
     def _load_config(self, config_path: str) -> configparser.ConfigParser:
@@ -185,20 +192,9 @@ Copy the Client ID, Client Secret and Redirect URI and paste them below.
             "Popularity": lambda track: self._safe_get(track, "popularity"),
             "Added By": lambda item: self._safe_get(item, "added_by", "id"),
             "Added At": lambda item: self._safe_get(item, "added_at"),
-            "Genres": lambda: "",
-            "Record Label": lambda: "",
-            "Danceability": lambda: "",
-            "Energy": lambda: "",
-            "Key": lambda: "",
-            "Loudness": lambda: "",
-            "Mode": lambda: "",
-            "Speechiness": lambda: "",
-            "Acousticness": lambda: "",
-            "Instrumentalness": lambda: "",
-            "Liveness": lambda: "",
-            "Valence": lambda: "",
-            "Tempo": lambda: "",
-            "Time Signature": lambda: "",
+            "ISRC": lambda track: self._safe_get(track, "external_ids", "isrc"),
+            "EAN": lambda track: self._safe_get(track, "external_ids", "ean"),
+            "UPC": lambda track: self._safe_get(track, "external_ids", "upc"),
         }
 
         headers = fields.keys()
@@ -256,14 +252,22 @@ def main():
     parser.add_argument("-l", "--list", action="store_true", help="List all playlists")
     parser.add_argument(
         "-i",
-        "--id",
+        "--include-ids",
         action="store_true",
         help="Include albums and artist(s) IDs in the exported fields",
+    )
+    parser.add_argument(
+        "-e",
+        "--external-ids",
+        action="store_true",
+        help="Include track ISRC, EAN and UPC in the exported fields",
     )
 
     args = parser.parse_args()
 
-    exporter = SpotifyExporter()
+    exporter = SpotifyExporter(
+        include_ids=args.include_ids, external_ids=args.external_ids
+    )
 
     # Initialize Spotify connection
     exporter.spotify.current_user()
