@@ -12,23 +12,29 @@ from tabulate import tabulate
 from functools import wraps
 
 
-def rate_limited(func):
+def rate_limited(func, max_retries=5):
     @wraps(func)
     def wrapper(*args, **kwargs):
-        while True:
+        retries = 0
+        wait = 1  # Initial wait time in seconds
+        while retries < max_retries:
             try:
                 return func(*args, **kwargs)
             except spotipy.SpotifyException as e:
                 if e.http_status == 429:
-                    wait = int(e.headers.get("Retry-After", 60))
+                    retry_after = int(e.headers.get("Retry-After", wait))
+                    wait = max(wait, retry_after)  # Use server-specified wait if provided
                     for remaining in range(wait, -1, -1):
                         print(
                             f"Rate limited. Retrying in {remaining} seconds...",
                             end="\r",
                         )
                         time.sleep(1)
+                    retries += 1
+                    wait = min(wait * 2, 60)  # Exponential backoff with a cap of 60 seconds
                 else:
                     raise
+        raise RuntimeError("Maximum retry limit reached. Aborting.")
 
     return wrapper
 
