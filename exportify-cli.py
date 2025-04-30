@@ -1,308 +1,399 @@
-import os
-import argparse
 import configparser
-from typing import Dict, List
+import csv
+import logging
+import os
+import sys
 from pathlib import Path
+from typing import Any
+
+import click
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
-import csv
-from tqdm import tqdm
 from tabulate import tabulate
+from tqdm.auto import tqdm
 
 
-class SpotifyExporter:
-    def __init__(
-        self,
-        config_path: str = "config.cfg",
-        include_uris: bool = False,
-        external_ids: bool = False,
-    ):
-        self.config = self._load_config(config_path)
-        self.include_uris = include_uris
-        self.external_ids = external_ids
-        self.spotify = self._init_spotify_client()
+# Environment variable names for credentials
+ENV_CLIENT_ID = "SPOTIPY_CLIENT_ID"
+ENV_CLIENT_SECRET = "SPOTIPY_CLIENT_SECRET"
+ENV_REDIRECT_URI = "SPOTIPY_REDIRECT_URI"
 
-    def _load_config(self, config_path: str) -> configparser.ConfigParser:
-        """Load or create Spotify API configuration."""
-        config = configparser.ConfigParser()
+# Default bar format for progress bars
+DEFAULT_BAR_FORMAT = (
+    "{desc}{percentage:3.0f}%|{bar}| {n_fmt:>4}"
+    "/{total_fmt:>4} [{elapsed:>6}<{remaining:>6}]"
+)
 
-        if not os.path.exists(config_path):
-            return self._create_config(config, config_path)
+# Max length for playlist name in progress bar
+DESC_LENGTH = 21
 
+# Configure logging
+logging.basicConfig(
+    level=logging.WARNING,
+    format="%(asctime)s | %(levelname)s | %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)],
+)
+logger = logging.getLogger(__name__)
+
+
+def load_config(config_path: Path) -> configparser.ConfigParser:
+    """Load configuration from environment or file, or prompt user to create one."""
+    config = configparser.ConfigParser()
+
+    # Priority: environment variables
+    client_id = os.getenv(ENV_CLIENT_ID)
+    client_secret = os.getenv(ENV_CLIENT_SECRET)
+    redirect_uri = os.getenv(ENV_REDIRECT_URI)
+
+    if client_id and client_secret and redirect_uri:
+        config["spotify"] = {
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "redirect_uri": redirect_uri,
+        }
+        return config
+
+    # Fallback to file
+    if config_path.exists():
         config.read(config_path)
         return config
 
-    def _create_config(
-        self, config: configparser.ConfigParser, config_path: str
-    ) -> configparser.ConfigParser:
-        """Create a new configuration file with user input."""
-        print("""File "config.cfg" not found. Let's create it.
+    # Prompt for credentials
+    logger.info(f"Config not found at {config_path}, creating new config file.")
+    spotify_cfg = {
+        "client_id": click.prompt("Spotify Client ID", type=str),
+        "client_secret": click.prompt("Spotify Client Secret", hide_input=True),
+        "redirect_uri": click.prompt("Redirect URI", type=str),
+    }
+    config["spotify"] = spotify_cfg
+    with config_path.open("w") as cfg:
+        config.write(cfg)
+    logger.info(f"Wrote new config to {config_path}")
+    return config
 
-1. Go to Spotify Developer Dashboard (https://developer.spotify.com/dashboard).
-2. Create a new app.
-3. Set a name and description for your app.
-4. Add a redirect URI (e.g. http://localhost:8080).
 
-Now after creating the app, press the Settings button on the upper right corner.
-Copy the Client ID, Client Secret and Redirect URI and paste them below.
-""")
-        config["spotify"] = {
-            "client_id": input("Client ID: "),
-            "client_secret": input("Client Secret: "),
-            "redirect_uri": input("Redirect URI: "),
-        }
+def init_spotify_client(cfg: configparser.ConfigParser) -> spotipy.Spotify:
+    """Initialize Spotify client with OAuth manager."""
+    creds = cfg["spotify"]
+    auth = SpotifyOAuth(
+        client_id=creds["client_id"],
+        client_secret=creds["client_secret"],
+        redirect_uri=creds["redirect_uri"],
+        scope="playlist-read-private playlist-read-collaborative user-library-read",
+        open_browser=True,
+        cache_path=".cache",
+    )
+    return spotipy.Spotify(auth_manager=auth, retries=10)
 
-        with open(config_path, "w") as configfile:
-            config.write(configfile)
 
-        return config
+def sanitize_filename(name: str, ext: str = ".csv") -> str:
+    """Convert a playlist name into a safe filename."""
+    safe = "".join(c if c.isalnum() or c in (" ", "_", "-") else "_" for c in name)
+    return f"{safe.strip().replace(' ', '_').lower()}{ext}"
 
-    def _init_spotify_client(self) -> spotipy.Spotify:
-        """Initialize Spotify client with OAuth."""
-        original = spotipy.Spotify(
-            auth_manager=SpotifyOAuth(
-                client_id=self.config.get("spotify", "client_id"),
-                client_secret=self.config.get("spotify", "client_secret"),
-                redirect_uri=self.config.get("spotify", "redirect_uri"),
-                scope="playlist-read-private playlist-read-collaborative user-library-read",
-            ),
-            retries=20
-        )
-        return original
 
-    def export_playlist(self, playlist: Dict, output_dir: str):
-        """Export a single playlist."""
-        output_path = Path(output_dir)
-        output_path.mkdir(parents=True, exist_ok=True)
-        
-        # Create sanitized filename
-        playlist_filename = (
-            "".join(
-                c if (c.isalnum() or c in (" ", "_", "-")) else "_"
-                for c in playlist["name"]
+def write_csv(file_path: Path, data: list[dict]) -> None:
+    """Write list of dicts to CSV, flattening lists to comma-separated values."""
+    if not data:
+        logger.warning("No data to write; skipping CSV.")
+        return
+
+    headers = list(data[0].keys())
+    with file_path.open("w", newline="", encoding="utf-8") as csvfile:
+        writer = csv.DictWriter(csvfile, fieldnames=headers)
+        writer.writeheader()
+        for row in data:
+            writer.writerow(row)
+    logger.info(f"Exported to {file_path}")
+
+
+class SpotifyExporter:
+    """Class to handle exporting Spotify playlists to CSV files."""
+
+    def __init__(
+        self,
+        spotify_client: spotipy.Spotify,
+        include_uris: bool = False,
+        include_ids: bool = False,
+    ) -> None:
+        """Initialize the exporter with a Spotify client."""
+        self.spotify = spotify_client
+        self.include_uris = include_uris
+        self.include_ids = include_ids
+
+    def _fetch_all_items(
+        self,
+        fetch_func,
+        key: str = None,
+        *args: Any,
+        desc: str | None = None,
+        bar_format: str = DEFAULT_BAR_FORMAT,
+        show_bar: bool = True,
+        **kwargs: Any,
+    ) -> list[dict]:
+        """Fetch all paginated or batched items from a Spotify endpoint.
+
+        - If the first positional arg is a list, treats it as an ID list for a batch
+          endpoint (e.g. `self.spotify.albums`), calls in chunks of 20, and returns
+          results[key] aggregated.
+        - Otherwise treats as a paginated endpoint, calling `fetch_func(*args, **kwargs)`
+          then .next() until exhausted, aggregating results["items"] or results[key].
+        """
+        items: list[dict] = []
+
+        # --- Batch mode (e.g. spotify.albums) ---
+        if args and isinstance(args[0], list):
+            id_list: list[str] = args[0]
+            total = len(id_list)
+            desc_text = desc or fetch_func.__name__
+            # build 20-item batches
+            batches = [id_list[i : i + 20] for i in range(0, total, 20)]
+
+            pbar = (
+                tqdm(total=total, desc=desc_text, unit="album", bar_format=bar_format)
+                if show_bar
+                else None
             )
-            .replace(" ", "_")
-            .lower()
-            + ".csv"
+
+            for batch in batches:
+                results = fetch_func(batch, **kwargs)
+                page_items = results.get(key, [])
+                items.extend(page_items)
+                if pbar:
+                    pbar.update(len(page_items))
+
+            if pbar:
+                pbar.close()
+            return items
+
+        # --- Paginated mode (e.g. playlist_tracks, saved_tracks) ---
+        # Initial fetch
+        results = fetch_func(*args, **kwargs)
+        page_items = results.get(key, [])
+        items.extend(page_items)
+
+        total = results.get("total")
+        # fallback to a name field or the function name if no desc given
+        desc_text = desc or (results.get("name") or fetch_func.__name__)
+
+        pbar = (
+            tqdm(total=total, desc=desc_text, unit="track", bar_format=bar_format)
+            if show_bar
+            else None
         )
+        if pbar:
+            pbar.update(len(page_items))
 
-        file_path = output_path / playlist_filename
+        # iterate through all pages
+        while len(items) < total:
+            results = self.spotify.next(results)
+            page_items = results.get(key, [])
+            items.extend(page_items)
+            if pbar:
+                pbar.update(len(page_items))
 
-        playlist_items = self._fetch_playlist_items(playlist)
-        playlist_items_albums = self._fetch_album_details(playlist_items)
-        
-        album_map = {album.get("id", ""): album for album in playlist_items_albums if album}
+        if pbar:
+            pbar.close()
+        return items
 
-        tracks = []
-        for playlist_item in playlist_items:
-            track_data = playlist_item.get("track", {})
-            if not track_data:
-                continue
-            album_id = track_data.get("album", {}).get("id", "")
-            album_data = album_map.get(album_id, {})
-            tracks.append(
-                self._spotify_data_to_nice_dict(playlist_item, track_data, album_data)
-            )
-        self._write_tracks_to_csv(tracks, file_path, playlist["name"])
-
-    def _spotify_data_to_nice_dict(
-        self, playlist_item: Dict, track_data: Dict, album_data: Dict
-    ) -> Dict:
-        """Convert Spotify data to a more readable dictionary."""
-        artist_data = track_data.get("artists", [])
-        artist_uris = [artist.get("uri", "") for artist in artist_data]
-        artist_names = [artist.get("name", "") for artist in artist_data]
-
-        track = {
-            "Track URI": track_data.get("uri", ""),
-            "Artist URI(s)": artist_uris,  # ",".join(artist_uris),
-            "Album URI": album_data.get("uri", ""),
-            "Track Name": track_data.get("name", ""),
-            "Album Name": track_data.get("album", {}).get("name", ""),
-            "Artist Name(s)": artist_names,  # ",".join(artist_names),
-            "Release Date": track_data.get("album", {}).get("release_date", ""),
-            "Duration (ms)": track_data.get("duration_ms"),
-            "Popularity": track_data.get("popularity", ""),
-            "Added By": playlist_item.get("added_by", {}).get("id", ""),
-            "Added At": playlist_item.get("added_at", ""),
-            "Record Label": album_data.get("label", ""),
-            "Track ISRC": track_data.get("external_ids", {}).get("isrc", ""),
-            "Album UPC": album_data.get("external_ids", {}).get("upc", ""),
-        }
-
-        if not self.include_uris:
-            track.pop("Artist URI(s)")
-            track.pop("Album URI")
-
-        if not self.external_ids:
-            track.pop("Track ISRC")
-            track.pop("Album UPC")
-
-        return track
-
-    def _fetch_playlist_items(self, playlist: Dict) -> List[Dict]:
-        """Fetch all tracks from a playlist with progress bar."""
-        if len(playlist["name"]) > 22:
-            formatted_playlist_name = playlist["name"][:19] + "...: "
-        else:
-            formatted_playlist_name = (playlist["name"] + ": ").ljust(24)
-
-        # Initial request
-        results = (
-            self.spotify.current_user_saved_tracks()
-            if playlist["id"] == "liked_songs"
-            else self.spotify.playlist_tracks(playlist["id"])
+    def get_playlists(self) -> list[dict]:
+        """Retrieve all user playlists plus liked songs."""
+        items = self._fetch_all_items(
+            self.spotify.current_user_playlists,
+            "items",
+            desc="Playlists",
+            show_bar=False,
         )
-
-        total_playlist_items = results["total"]
-
-        with tqdm(
-            total=total_playlist_items,
-            desc=formatted_playlist_name,
-            unit="track",
-            bar_format="{desc}{percentage:3.0f}%|{bar}| {n_fmt:>4}/{total_fmt:>4} [{elapsed:>6}<{remaining:>6}]",
-        ) as pbar:
-            playlist_items = []
-            while True:
-                playlist_items.extend(results["items"])
-                pbar.update(len(results["items"]))
-
-                if not results["next"]:
-                    break
-
-                results = self.spotify.next(results)
-        return playlist_items
-
-    def _fetch_album_details(self, playlist_items: List[Dict]) -> List[Dict]:
-        """Fetch album details for all tracks in the playlist."""
-        album_ids = [
-            album_id for album_id in {
-                item["track"]["album"]["id"]
-                for item in playlist_items
-                if item.get("track")
-            }
-            if album_id
-        ]
-
-        with tqdm(
-            total=len(album_ids),
-            desc="Fetching album details: ",
-            unit="album",
-            bar_format="{desc}{percentage:3.0f}%|{bar}| {n_fmt:>4}/{total_fmt:>4} [{elapsed:>6}<{remaining:>6}]",
-        ) as pbar:
-            playlist_items_albums = []
-            # Spotify Batch API limit is 20 items per request
-            sliced_album_ids = [
-                album_ids[i : i + 20] for i in range(0, len(album_ids), 20)
-            ]
-            for albums_batch in sliced_album_ids:
-                album_results = self.spotify.albums(albums_batch)
-                playlist_items_albums.extend(album_results["albums"])
-                pbar.update(len(album_results["albums"]))
-        return playlist_items_albums
-
-    def _write_tracks_to_csv(
-        self, tracks: List[Dict], file_path: Path, playlist_name: str
-    ):
-        """Write tracks to CSV file."""
-        headers = tracks[0].keys() if tracks else []
-        with open(file_path, mode="w", newline="", encoding="utf-8") as f:
-            writer = csv.writer(f)
-            writer.writerow(headers)
-
-            for track in tracks:
-                try:
-                    row = track.values()
-                    writer.writerow(row)
-                except Exception as e:
-                    print(f"\nError processing track: {e}")
-                    continue
-        print(f"Exported playlist '{playlist_name}' to \"{file_path}\"")
-
-    def get_all_playlists(self) -> List[Dict]:
-        """Get all user playlists including Liked Songs."""
-        playlists = self.spotify.current_user_playlists()["items"]
-
-        # Add Liked Songs as a special playlist
-        liked_songs = {
+        liked_total = self.spotify.current_user_saved_tracks(limit=1)["total"]
+        liked = {
             "name": "Liked Songs",
             "id": "liked_songs",
-            "tracks": {"total": self.spotify.current_user_saved_tracks()["total"]},
+            "tracks": {"total": liked_total},
         }
-        return [liked_songs] + playlists
+        return [liked, *items]
 
-    def list_playlists(self):
-        """Display all playlists in a formatted table."""
-        playlists = self.get_all_playlists()
-        table_data = [
-            [p["name"], p["id"], p["tracks"]["total"]]
-            for p in playlists
-            if p is not None
-        ]
-        print(tabulate(table_data, headers=["Name", "ID", "Tracks"], tablefmt="simple"))
+    def export_playlist(self, playlist: dict, output_dir: Path) -> None:
+        """Export a single playlist to CSV file."""
+        name, pid = playlist["name"], playlist["id"]
+        output_dir.mkdir(parents=True, exist_ok=True)
+        filepath = output_dir / sanitize_filename(name)
 
+        # Format description for progress bar
+        desc = (
+            name[: DESC_LENGTH - 2] + "...: "
+            if len(name) > DESC_LENGTH - 2
+            else f"{name}: ".ljust(DESC_LENGTH + 3)
+        )
 
-def main():
-    parser = argparse.ArgumentParser(description="Export Spotify playlists to CSV.")
-    parser.add_argument("-a", "--all", action="store_true", help="Export all playlists")
-    parser.add_argument(
-        "-p", "--playlists", nargs="+", help="Specify playlist names or IDs to export"
-    )
-    parser.add_argument(
-        "-o",
-        "--output",
-        default="./playlists/",
-        help="Specify the output directory (default: ./playlists/)",
-    )
-    parser.add_argument("-l", "--list", action="store_true", help="List all playlists")
-    parser.add_argument(
-        "--include-uris",
-        action="store_true",
-        help="Include albums and artist(s) URIs in the exported fields (track URIs are always included)",
-    )
-    parser.add_argument(
-        "--external-ids",
-        action="store_true",
-        help="Include track ISRC and album UPC in the exported fields",
-    )
-
-    args = parser.parse_args()
-
-    exporter = SpotifyExporter(
-        include_uris=args.include_uris, external_ids=args.external_ids
-    )
-
-    # Initialize Spotify connection
-    exporter.spotify.current_user()
-
-    if args.list:
-        exporter.list_playlists()
-        return
-
-    if args.all:
-        for playlist in exporter.get_all_playlists():
-            exporter.export_playlist(playlist, args.output)
-        return
-
-    if args.playlists:
-        playlists = exporter.get_all_playlists()
-        for name_or_id in args.playlists:
-            playlist = next(
-                (
-                    p
-                    for p in playlists
-                    if p and (p["name"] == name_or_id or p["id"] == name_or_id)
-                ),
-                None,
+        # Fetch tracks
+        if pid == "liked_songs":
+            items = self._fetch_all_items(
+                self.spotify.current_user_saved_tracks,
+                "items",
+                desc=desc,
+            )
+        else:
+            items = self._fetch_all_items(
+                self.spotify.playlist_tracks,
+                "items",
+                pid,
+                desc=desc,
             )
 
-            if playlist:
-                exporter.export_playlist(playlist, args.output)
-            else:
-                print(f"Playlist '{name_or_id}' not found.")
-        return
+        # Batch fetch album details
+        album_ids = list({i["track"]["album"]["id"] for i in items if i.get("track")})
+        album_items = self._fetch_all_items(
+            self.spotify.albums,
+            "albums",
+            album_ids,
+            desc="Fetching album details: ",
+        )
+        albums = {a["id"]: a for a in album_items}
 
-    print("Please specify either --all, --playlists, or --list.")
+        # Build export data
+        export_data = []
+        for item in items:
+            track = item.get("track") or {}
+            album = albums.get(track.get("album", {}).get("id"), {})
+            artists = [a["name"] for a in track.get("artists", [])]
+            artist_uris = [a["uri"] for a in track.get("artists", [])]
+
+            record = {
+                "Track URI": track.get("uri"),
+                "Artist URI(s)": artist_uris,
+                "Album URI": album.get("uri"),
+                "Track Name": track.get("name"),
+                "Album Name": album.get("name"),
+                "Artist Name(s)": artists,
+                "Release Date": album.get("release_date"),
+                "Duration_ms": track.get("duration_ms"),
+                "Popularity": track.get("popularity"),
+                "Added By": item.get("added_by", {}).get("id"),
+                "Added At": item.get("added_at"),
+                "Record Label": album.get("label"),
+                "Track ISRC": track.get("external_ids", {}).get("isrc"),
+                "Album UPC": album.get("external_ids", {}).get("upc"),
+            }
+
+            if not self.include_uris:
+                record.pop("Artist URI(s)", None)
+                record.pop("Album URI", None)
+            if not self.include_ids:
+                record.pop("Track ISRC", None)
+                record.pop("Album UPC", None)
+
+            export_data.append(record)
+
+        write_csv(filepath, export_data)
+        click.echo(
+            f"Exported {len(export_data)} tracks from '{name}' to {filepath}",
+        )
+
+
+@click.command()
+@click.option(
+    "--config",
+    "-c",
+    default="config.cfg",
+    type=click.Path(),
+    help="Path to configuration file",
+)
+@click.option(
+    "--output",
+    "-o",
+    default="./playlists",
+    type=click.Path(),
+    help="Directory to save CSV files",
+)
+@click.option("--all", "-a", "export_all", is_flag=True, help="Export all playlists")
+@click.option(
+    "--playlist",
+    "-p",
+    multiple=True,
+    help="Names or IDs of playlists to export",
+)
+@click.option(
+    "--list",
+    "-l",
+    "list_only",
+    is_flag=True,
+    help="List available playlists",
+)
+@click.option("--include-uris", is_flag=True, help="Include album and artist URIs")
+@click.option("--include-ids", is_flag=True, help="Include track ISRC and album UPC")
+@click.help_option("--help", "-h")
+def main(
+    config: str,
+    output: str,
+    playlist: list[str],
+    *,
+    export_all: bool = False,
+    list_only: bool = False,
+    include_uris: bool = False,
+    include_ids: bool = False,
+) -> None:
+    """CLI for exporting Spotify playlists to CSV."""
+    cfg_path = Path(config)
+    cfg = load_config(cfg_path)
+    client = init_spotify_client(cfg)
+
+    exporter = SpotifyExporter(
+        spotify_client=client,
+        include_uris=include_uris,
+        include_ids=include_ids,
+    )
+
+    playlists = exporter.get_playlists()
+
+    if list_only:
+        playlist_data = [[p["name"], p["id"], p["tracks"]["total"]] for p in playlists]
+        terminal_width = os.get_terminal_size().columns
+
+        click.echo(
+            tabulate(
+                playlist_data,
+                headers=["Name", "ID", "Tracks"],
+                tablefmt="simple",
+                # 34 is the width of ID and Tracks columns + padding
+                maxcolwidths=[terminal_width - 34, None, None],
+            ),
+        )
+        sys.exit(0)
+
+    # Determine targets
+    targets = []
+    if export_all:
+        targets = playlists
+    else:
+        # Exact matches first
+        for p in playlists:
+            if p["name"] in playlist or p["id"] in playlist:
+                targets.append(p)
+        # For unmatched inputs, try unique prefix match
+        for term in playlist:
+            if any(p for p in targets if p["name"] == term or p["id"] == term):
+                continue
+            matches = [
+                p for p in playlists if p["name"].lower().startswith(term.lower())
+            ]
+            if len(matches) == 1:
+                targets.append(matches[0])
+            elif len(matches) > 1:
+                click.echo(
+                    f"Ambiguous prefix '{term}': matches "
+                    f"{', '.join(p['name'] for p in matches)}. Skipping.",
+                )
+
+    # Deduplicate
+    targets = list({p["id"]: p for p in targets}.values())
+
+    if not targets:
+        click.echo("No matching playlists found.")
+        sys.exit(1)
+
+    out_dir = Path(output)
+    for pl in targets:
+        exporter.export_playlist(pl, out_dir)
 
 
 if __name__ == "__main__":
