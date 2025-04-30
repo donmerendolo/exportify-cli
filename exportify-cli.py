@@ -143,7 +143,7 @@ Copy the Client ID, Client Secret and Redirect URI and paste them below.
         self._write_tracks_to_csv(tracks, file_path, playlist["name"])
 
     def _spotify_data_to_nice_dict(
-        self, playlist_item: Dict, track_data: Dict, album_data: List[Dict]
+        self, playlist_item: Dict, track_data: Dict, album_data: Dict
     ) -> Dict:
         """Convert Spotify data to a more readable dictionary."""
         artist_data = track_data.get("artists", [])
@@ -166,7 +166,7 @@ Copy the Client ID, Client Secret and Redirect URI and paste them below.
             "Track ISRC": track_data.get("external_ids", {}).get("isrc", ""),
             "Album UPC": album_data.get("external_ids", {}).get("upc", ""),
         }
-        
+
         if not self.include_uris:
             track.pop("Artist URI(s)")
             track.pop("Album URI")
@@ -231,8 +231,8 @@ Copy the Client ID, Client Secret and Redirect URI and paste them below.
             sliced_album_ids = [
                 album_ids[i : i + 20] for i in range(0, len(album_ids), 20)
             ]
-            for slice in sliced_album_ids:
-                album_results = self.spotify.albums(slice)
+            for albums_batch in sliced_album_ids:
+                album_results = self.spotify.albums(albums_batch)
                 playlist_items_albums.extend(album_results["albums"])
                 pbar.update(len(album_results["albums"]))
         return playlist_items_albums
