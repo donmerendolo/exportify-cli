@@ -1,5 +1,6 @@
 import configparser
 import csv
+import json
 import logging
 import os
 import sys
@@ -11,7 +12,6 @@ import spotipy
 from spotipy.oauth2 import SpotifyOAuth
 from tabulate import tabulate
 from tqdm.auto import tqdm
-
 
 # Environment variable names for credentials
 ENV_CLIENT_ID = "SPOTIPY_CLIENT_ID"
@@ -86,14 +86,14 @@ def init_spotify_client(cfg: configparser.ConfigParser) -> spotipy.Spotify:
     return spotipy.Spotify(auth_manager=auth, retries=10)
 
 
-def sanitize_filename(name: str, ext: str = ".csv") -> str:
+def sanitize_filename(name: str, ext: str) -> str:
     """Convert a playlist name into a safe filename."""
     safe = "".join(c if c.isalnum() or c in (" ", "_", "-") else "_" for c in name)
-    return f"{safe.strip().replace(' ', '_').lower()}{ext}"
+    return f"{safe.strip().replace(' ', '_').lower()}.{ext}"
 
 
 def write_csv(file_path: Path, data: list[dict]) -> None:
-    """Write list of dicts to CSV, flattening lists to comma-separated values."""
+    """Write list of dicts to CSV."""
     if not data:
         logger.warning("No data to write; skipping CSV.")
         return
@@ -107,24 +107,37 @@ def write_csv(file_path: Path, data: list[dict]) -> None:
     logger.info(f"Exported to {file_path}")
 
 
+def write_json(file_path: Path, data: list[dict]) -> None:
+    """Write list of dicts to JSON."""
+    if not data:
+        logger.warning("No data to write; skipping JSON.")
+        return
+
+    with file_path.open("w", encoding="utf-8") as jsonfile:
+        json.dump(data, jsonfile, ensure_ascii=False, indent=4)
+    logger.info(f"Exported to {file_path}")
+
+
 class SpotifyExporter:
     """Class to handle exporting Spotify playlists to CSV files."""
 
     def __init__(
         self,
         spotify_client: spotipy.Spotify,
-        include_uris: bool = False,
-        include_ids: bool = False,
+        file_format: str,
+        include_uris: bool,
+        external_ids: bool,
     ) -> None:
         """Initialize the exporter with a Spotify client."""
         self.spotify = spotify_client
+        self.file_format = file_format
         self.include_uris = include_uris
-        self.include_ids = include_ids
+        self.external_ids = external_ids
 
     def _fetch_all_items(
         self,
         fetch_func,
-        key: str = None,
+        key: str | None = None,
         *args: Any,
         desc: str | None = None,
         bar_format: str = DEFAULT_BAR_FORMAT,
@@ -216,7 +229,7 @@ class SpotifyExporter:
         """Export a single playlist to CSV file."""
         name, pid = playlist["name"], playlist["id"]
         output_dir.mkdir(parents=True, exist_ok=True)
-        filepath = output_dir / sanitize_filename(name)
+        filepath = output_dir / sanitize_filename(name, self.file_format)
 
         # Format description for progress bar
         desc = (
@@ -278,19 +291,24 @@ class SpotifyExporter:
             if not self.include_uris:
                 record.pop("Artist URI(s)", None)
                 record.pop("Album URI", None)
-            if not self.include_ids:
+            if not self.external_ids:
                 record.pop("Track ISRC", None)
                 record.pop("Album UPC", None)
 
             export_data.append(record)
 
-        write_csv(filepath, export_data)
+        print(self.file_format)
+        if self.file_format == "csv":
+            write_csv(filepath, export_data)
+        elif self.file_format == "json":
+            write_json(filepath, export_data)
         click.echo(
             f"Exported {len(export_data)} tracks from '{name}' to {filepath}",
         )
 
 
 @click.command()
+@click.help_option("-h", "--help")
 @click.option(
     "--config",
     "-c",
@@ -303,9 +321,23 @@ class SpotifyExporter:
     "-o",
     default="./playlists",
     type=click.Path(),
-    help="Directory to save CSV files",
+    help="Directory to save files",
 )
-@click.option("--all", "-a", "export_all", is_flag=True, help="Export all playlists")
+@click.option(
+    "--format",
+    "-f",
+    "file_format",
+    type=click.Choice(["csv", "json"]),
+    default="csv",
+    help="Output file format",
+)
+@click.option(
+    "--all",
+    "-a",
+    "export_all",
+    is_flag=True,
+    help="Export all playlists",
+)
 @click.option(
     "--playlist",
     "-p",
@@ -319,28 +351,37 @@ class SpotifyExporter:
     is_flag=True,
     help="List available playlists",
 )
-@click.option("--include-uris", is_flag=True, help="Include album and artist URIs")
-@click.option("--include-ids", is_flag=True, help="Include track ISRC and album UPC")
-@click.help_option("--help", "-h")
+@click.option(
+    "--uris",
+    "include_uris",
+    is_flag=True,
+    help="Include album and artist URIs",
+)
+@click.option(
+    "--external-ids",
+    is_flag=True,
+    help="Include track ISRC and album UPC",
+)
 def main(
     config: str,
     output: str,
-    playlist: list[str],
-    *,
-    export_all: bool = False,
-    list_only: bool = False,
-    include_uris: bool = False,
-    include_ids: bool = False,
+    file_format: str,
+    export_all: bool,
+    playlist: tuple[str, ...],
+    list_only: bool,
+    include_uris: bool,
+    external_ids: bool,
 ) -> None:
-    """CLI for exporting Spotify playlists to CSV."""
+    """CLI for exporting Spotify playlists to CSV or JSON."""
     cfg_path = Path(config)
     cfg = load_config(cfg_path)
     client = init_spotify_client(cfg)
 
     exporter = SpotifyExporter(
         spotify_client=client,
+        file_format=file_format,
         include_uris=include_uris,
-        include_ids=include_ids,
+        external_ids=external_ids,
     )
 
     playlists = exporter.get_playlists()
