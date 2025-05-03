@@ -27,7 +27,7 @@ File "config.cfg" not found. Let's create it.
 1. Go to Spotify Developer Dashboard (https://developer.spotify.com/dashboard).
 2. Create a new app.
 3. Set a name and description for your app.
-4. Add a redirect URI (e.g. http://localhost:8080).
+4. Add a redirect URI (e.g. http://127.0.0.1:3000/callback).
 
 Now after creating the app, press the Settings button on the upper right corner.
 Copy the Client ID, Client Secret and Redirect URI and paste them below.
