@@ -13,10 +13,6 @@ from spotipy.oauth2 import SpotifyOAuth
 from tabulate import tabulate
 from tqdm.auto import tqdm
 
-# Environment variable names for credentials
-ENV_CLIENT_ID = "SPOTIPY_CLIENT_ID"
-ENV_CLIENT_SECRET = "SPOTIPY_CLIENT_SECRET"
-ENV_REDIRECT_URI = "SPOTIPY_REDIRECT_URI"
 
 # Default bar format for progress bars
 DEFAULT_BAR_FORMAT = (
@@ -40,29 +36,27 @@ def load_config(config_path: Path) -> configparser.ConfigParser:
     """Load configuration from environment or file, or prompt user to create one."""
     config = configparser.ConfigParser()
 
-    # Priority: environment variables
-    client_id = os.getenv(ENV_CLIENT_ID)
-    client_secret = os.getenv(ENV_CLIENT_SECRET)
-    redirect_uri = os.getenv(ENV_REDIRECT_URI)
-
-    if client_id and client_secret and redirect_uri:
-        config["spotify"] = {
-            "client_id": client_id,
-            "client_secret": client_secret,
-            "redirect_uri": redirect_uri,
-        }
-        return config
-
-    # Fallback to file
     if config_path.exists():
         config.read(config_path)
         return config
 
     # Prompt for credentials
     logger.info(f"Config not found at {config_path}, creating new config file.")
+    click.echo("""File "config.cfg" not found. Let's create it.
+
+1. Go to Spotify Developer Dashboard (https://developer.spotify.com/dashboard).
+2. Create a new app.
+3. Set a name and description for your app.
+4. Add a redirect URI (e.g. http://127.0.0.1:8080/callback).
+
+Now after creating the app, press the Settings button on the upper right corner.
+Copy the Client ID, Client Secret and Redirect URI and paste them below.""")
+
     spotify_cfg = {
         "client_id": click.prompt("Spotify Client ID", type=str),
-        "client_secret": click.prompt("Spotify Client Secret", hide_input=True),
+        "client_secret": click.prompt(
+            "Spotify Client Secret", hide_input=True, type=str
+        ),
         "redirect_uri": click.prompt("Redirect URI", type=str),
     }
     config["spotify"] = spotify_cfg
@@ -92,29 +86,24 @@ def sanitize_filename(name: str, ext: str) -> str:
     return f"{safe.strip().replace(' ', '_').lower()}.{ext}"
 
 
-def write_csv(file_path: Path, data: list[dict]) -> None:
-    """Write list of dicts to CSV."""
+def write_file(file_path: Path, data: list[dict], file_format: str = "csv") -> None:
+    """Write list of dicts to file."""
     if not data:
-        logger.warning("No data to write; skipping CSV.")
+        logger.warning("No data to write; skipping file.")
         return
 
-    headers = list(data[0].keys())
-    with file_path.open("w", newline="", encoding="utf-8") as csvfile:
-        writer = csv.DictWriter(csvfile, fieldnames=headers)
-        writer.writeheader()
-        for row in data:
-            writer.writerow(row)
-    logger.info(f"Exported to {file_path}")
+    if file_format == "csv":
+        headers = list(data[0].keys())
+        with file_path.open("w", newline="", encoding="utf-8") as csvfile:
+            writer = csv.DictWriter(csvfile, fieldnames=headers)
+            writer.writeheader()
+            for row in data:
+                writer.writerow(row)
 
+    elif file_format == "json":
+        with file_path.open("w", encoding="utf-8") as jsonfile:
+            json.dump(data, jsonfile, ensure_ascii=False, indent=4)
 
-def write_json(file_path: Path, data: list[dict]) -> None:
-    """Write list of dicts to JSON."""
-    if not data:
-        logger.warning("No data to write; skipping JSON.")
-        return
-
-    with file_path.open("w", encoding="utf-8") as jsonfile:
-        json.dump(data, jsonfile, ensure_ascii=False, indent=4)
     logger.info(f"Exported to {file_path}")
 
 
@@ -127,12 +116,14 @@ class SpotifyExporter:
         file_format: str,
         include_uris: bool,
         external_ids: bool,
+        no_bar_flag: bool,
     ) -> None:
         """Initialize the exporter with a Spotify client."""
         self.spotify = spotify_client
         self.file_format = file_format
         self.include_uris = include_uris
         self.external_ids = external_ids
+        self.no_bar_flag = no_bar_flag
 
     def _fetch_all_items(
         self,
@@ -164,14 +155,32 @@ class SpotifyExporter:
 
             pbar = (
                 tqdm(total=total, desc=desc_text, unit="album", bar_format=bar_format)
-                if show_bar
+                if show_bar and not self.no_bar_flag
                 else None
             )
 
             for batch in batches:
-                results = fetch_func(batch, **kwargs)
+                results = fetch_func(batch, *args[1:], **kwargs)
                 page_items = results.get(key, [])
+
+                fetched_ids = [i.get("id") for i in page_items if i and i.get("id")]
+                page_items = [i for i in page_items if i]
+
+                unfetched_ids = list(set(batch) - set(fetched_ids))
+                shows = []
+                for id in unfetched_ids:
+                    try:
+                        if unfetched_ids:
+                            shows.append(self.spotify.show(id))
+                    except spotipy.SpotifyException as e:
+                        logger.warning(f"Failed to fetch show for ID {id}: {e}")
+
+                for i in shows:
+                    i["label"] = i.get("publisher")
+                page_items.extend(shows)
+
                 items.extend(page_items)
+
                 if pbar:
                     pbar.update(len(page_items))
 
@@ -191,7 +200,7 @@ class SpotifyExporter:
 
         pbar = (
             tqdm(total=total, desc=desc_text, unit="track", bar_format=bar_format)
-            if show_bar
+            if show_bar and not self.no_bar_flag
             else None
         )
         if pbar:
@@ -207,6 +216,25 @@ class SpotifyExporter:
 
         if pbar:
             pbar.close()
+
+        def _episode_to_track(item: dict) -> dict:
+            """Convert episode to track if applicable."""
+            if item.get("track"):
+                track = item.get("track")
+            else:
+                return
+
+            if track.get("type") == "episode":
+                episode_id = track.get("id")
+                episode = self.spotify.episode(episode_id)
+                track["release_date"] = episode.get("release_date")
+
+                for artist in track.get("artists", []):
+                    artist["name"] = artist.get("type")
+
+        for i in items:
+            _episode_to_track(i)
+
         return items
 
     def get_playlists(self) -> list[dict]:
@@ -253,20 +281,47 @@ class SpotifyExporter:
                 desc=desc,
             )
 
+        # Found a track like this in a playlist (replacing [user_id]
+        # with the actual user id). I could remove it from the list
+        # since it has no info about the track, but one could hypothetically
+        # do detective work out of 'added_at' to find the track (or thing)
+        # it originally was (I guess), so I'll leave it there.
+        #
+        # No idea on how it was generated.
+        #
+        # {'added_at': '2022-06-30T21:08:13Z',
+        #  'added_by': {'external_urls': {'spotify': 'https://open.spotify.com/user/[user_id]'},
+        #               'href': 'https://api.spotify.com/v1/users/[user_id]',
+        #               'id': '[user_id]',
+        #               'type': 'user',
+        #               'uri': 'spotify:user:[user_id]'},
+        #  'is_local': False,
+        #  'primary_color': None,
+        #  'track': None,
+        #  'video_thumbnail': {'url': None}}
+
         # Batch fetch album details
-        album_ids = list({i["track"]["album"]["id"] for i in items if i.get("track")})
+        album_ids = list(
+            {
+                i.get("track").get("album").get("id")
+                for i in items
+                if i.get("track")
+                and i.get("track").get("album")
+                and i.get("track").get("album").get("id")
+            }
+        )
         album_items = self._fetch_all_items(
             self.spotify.albums,
             "albums",
             album_ids,
             desc="Fetching album details: ",
         )
-        albums = {a["id"]: a for a in album_items}
+        albums = {a.get("id"): a for a in album_items if a}
 
         # Build export data
         export_data = []
-        for item in items:
-            track = item.get("track") or {}
+        for i in items:
+            track = i.get("track") or {}
             album = albums.get(track.get("album", {}).get("id"), {})
             artists = [a["name"] for a in track.get("artists", [])]
             artist_uris = [a["uri"] for a in track.get("artists", [])]
@@ -278,11 +333,12 @@ class SpotifyExporter:
                 "Track Name": track.get("name"),
                 "Album Name": album.get("name"),
                 "Artist Name(s)": artists,
-                "Release Date": album.get("release_date"),
+                "Release Date": album.get("release_date")
+                or (track.get("release_date")),
                 "Duration_ms": track.get("duration_ms"),
                 "Popularity": track.get("popularity"),
-                "Added By": item.get("added_by", {}).get("id"),
-                "Added At": item.get("added_at"),
+                "Added By": i.get("added_by", {}).get("id"),
+                "Added At": i.get("added_at"),
                 "Record Label": album.get("label"),
                 "Track ISRC": track.get("external_ids", {}).get("isrc"),
                 "Album UPC": album.get("external_ids", {}).get("upc"),
@@ -297,11 +353,7 @@ class SpotifyExporter:
 
             export_data.append(record)
 
-        print(self.file_format)
-        if self.file_format == "csv":
-            write_csv(filepath, export_data)
-        elif self.file_format == "json":
-            write_json(filepath, export_data)
+        write_file(filepath, export_data, self.file_format)
         click.echo(
             f"Exported {len(export_data)} tracks from '{name}' to {filepath}",
         )
@@ -362,6 +414,12 @@ class SpotifyExporter:
     is_flag=True,
     help="Include track ISRC and album UPC",
 )
+@click.option(
+    "--no-bar",
+    "no_bar_flag",
+    is_flag=True,
+    help="Disable progress bar",
+)
 def main(
     config: str,
     output: str,
@@ -371,6 +429,7 @@ def main(
     list_only: bool,
     include_uris: bool,
     external_ids: bool,
+    no_bar_flag: bool,
 ) -> None:
     """CLI for exporting Spotify playlists to CSV or JSON."""
     cfg_path = Path(config)
@@ -382,6 +441,7 @@ def main(
         file_format=file_format,
         include_uris=include_uris,
         external_ids=external_ids,
+        no_bar_flag=no_bar_flag,
     )
 
     playlists = exporter.get_playlists()
