@@ -479,7 +479,7 @@ class CustomCommand(click.Command):
     "--format",
     "format_param",
     type=click.Choice(["csv", "json"]),
-    default="csv",
+    default=None,
     help="Output file format (if omitted, defaults to 'csv').",
 )
 @optgroup.option(
