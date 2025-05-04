@@ -3,6 +3,7 @@ import csv
 import json
 import logging
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -48,7 +49,7 @@ def validate_config(config: configparser.ConfigParser) -> bool:
     missing = [k for k in required if not spotify_cfg.get(k, "").strip()]
     if missing:
         logger.error(
-            f"Missing or empty keys in [spotify] section: {', '.join(missing)}"
+            f"Missing or empty keys in [spotify] section: {', '.join(missing)}",
         )
         return False
     redirect = spotify_cfg["redirect_uri"].strip()
@@ -124,6 +125,13 @@ Copy the Client ID, Client Secret and Redirect URI and paste them below.""")
     return config
 
 
+def clean_playlist_input(playlist: list[str]) -> None:
+    """Detect playlist URLs or URIs and convert them to IDs."""
+    for i, p in enumerate(playlist):
+        playlist[i] = re.sub(r"^.*playlists?/([a-zA-Z0-9]{22}).*$", r"\1", p)
+        playlist[i] = playlist[i].replace("spotify:playlist:", "")
+
+
 def init_spotify_client(cfg: configparser.ConfigParser) -> spotipy.Spotify:
     """Initialize Spotify client with OAuth manager."""
     creds = cfg["spotify"]
@@ -182,6 +190,8 @@ class SpotifyExporter:
         self.include_uris = include_uris
         self.external_ids = external_ids
         self.with_bar_flag = with_bar_flag
+        self.exported_playlists = 0
+        self.exported_tracks = 0
 
     def _fetch_all_items(
         self,
@@ -412,6 +422,8 @@ class SpotifyExporter:
             export_data.append(record)
 
         write_file(filepath, export_data, self.file_format)
+        self.exported_playlists += 1
+        self.exported_tracks += len(export_data)
         click.echo(
             f"Exported {len(export_data)} tracks from '{name}' to {filepath}",
         )
@@ -453,7 +465,7 @@ class SpotifyExporter:
     "-p",
     "playlist",
     multiple=True,
-    help="Names or IDs of playlists to export",
+    help="Names, URLs or IDs of playlists to export",
 )
 @click.option(
     "--list",
@@ -522,6 +534,9 @@ def main(
         with_bar_flag=bar_flag,
     )
 
+    playlist = list(playlist)
+    clean_playlist_input(playlist)
+
     fetched_playlists = exporter.get_playlists()
 
     if list_only:
@@ -587,6 +602,13 @@ def main(
     out_dir = Path(output)
     for pl in targets:
         exporter.export_playlist(pl, out_dir)
+
+    if exporter.exported_playlists > 1:
+        click.echo(
+            f"Successfully exported {exporter.exported_tracks} tracks "
+            f"from {exporter.exported_playlists} playlists.",
+        )
+    sys.exit(0)
 
 
 if __name__ == "__main__":
