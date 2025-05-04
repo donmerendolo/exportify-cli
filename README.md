@@ -1,6 +1,7 @@
 # exportify-cli
-![](image.png?raw=true "exportify-cli") \
-Export Spotify playlists to CSV directly from the terminal, inspired by [pavelkomarov/exportify](https://github.com/pavelkomarov/exportify).
+![exportify-cli](image.png)
+
+Export Spotify playlists to CSV or JSON directly from the terminal, inspired by [pavelkomarov/exportify](https://github.com/pavelkomarov/exportify).
 
 This tool can export all saved playlists, including liked songs.
 
@@ -12,17 +13,17 @@ git clone https://github.com/donmerendolo/exportify-cli.git
 ```
 
 2. **Install the required packages:**
+(recommended to use a virtual environment)
 ```bash
 cd exportify-cli
 pip install -r requirements.txt
 ```
-(recommended to use a virtual environment)
-  
+
 3. **Set up Client ID, Client Secret and Redirect URI:**
 
 The first time you run exportify-cli, it will guide you through the setup:
 ```
-File "config.cfg" not found. Let's create it.
+File "config.cfg" not found or invalid. Let's create it.
 
 1. Go to Spotify Developer Dashboard (https://developer.spotify.com/dashboard).
 2. Create a new app.
@@ -33,39 +34,63 @@ Now after creating the app, press the Settings button on the upper right corner.
 Copy the Client ID, Client Secret and Redirect URI and paste them below.
 ```
 
-After running `python exportify-cli.py` (or [`exportify-cli.exe`](https://github.com/donmerendolo/exportify-cli/releases/latest/download/exportify-cli.exe) if you use the Windows binary) the first time, it should keep you authenticated so you don't have to log in each time. If you wish to log out, simply remove the `.cache` file.
+After running `python exportify-cli.py` (or [`exportify-cli.exe`](https://github.com/donmerendolo/exportify-cli/releases/latest/download/exportify-cli.exe) if you use the Windows binary) the first time, it should keep you authenticated so you don't have to log in each time.
+
+If you wish to log out, simply remove the `.cache` file (you may also have to remove access to `exportify-cli` in https://www.spotify.com/us/account/apps/).
 
 ---
 
-Tested on Windows with Python 3.11.9.
-
 ## Usage:
 ```
-usage: exportify.py [-h] [-a] [-p PLAYLISTS [PLAYLISTS ...]] [-o OUTPUT] [-l]
+Usage: exportify-cli.py (-a | -p NAME|ID|URL|URI [-p ...] | -l) [OPTIONS]
 
-Export Spotify playlists to CSV.
+  Export Spotify playlists to CSV or JSON.
 
-options:
-  -h, --help            show this help message and exit
-  -a, --all             Export all playlists
-  -p PLAYLISTS [PLAYLISTS ...], --playlists PLAYLISTS [PLAYLISTS ...]
-                        Specify playlist names or IDs to export
-  -o OUTPUT, --output OUTPUT
-                        Specify the output directory (default: ./playlists/)
-  -l, --list            List all playlists
+Options:
+    -a, --all                     Export all playlists
+    -p, --playlist NAME|ID|URL|URI
+                                  Spotify playlist name, ID, URL, or URI;
+                                  repeatable.
+    -l, --list                    List available playlists.
+    -c, --config PATH             Path to configuration file.  [default:
+                                  config.cfg]
+    -o, --output PATH             Directory to save exported files.  [default:
+                                  ./playlists]
+    -f, --format [csv|json]       Output file format.  [default: csv]
+    --uris                        Include album and artist URIs.
+    --external-ids                Include track ISRC and album UPC.
+    --no-bar                      Hide progress bar.
+  -h, --help                      Show this message and exit.
+  -v, --version                   Show the version and exit.
 ```
+
+- Default values can be changed in `config.cfg`.
+
+- Playlist names support partial matching, provided they uniquely identify a single playlist.
+
+- You can also export a playlist that's not saved in your library by using its ID, URL, or URI.
+
+- A single command can export multiple playlists by using the `-p` option multiple times.
+
+- The default fields are: `Track URI`, `Track Name`, `Album Name`, `Artist Name(s)`, `Release Date`, `Duration_ms`, `Popularity`, `Added By`, `Added At`, `Record Label`. With flags, `Album URI(s)`, `Artist URI(s)`, `Track ISRC` and `Album UPC` can be included too. If you want any other field to be added, feel free to open an issue or PR.
 
 ### Examples:
 ```
 # List all saved playlists
 python exportify-cli.py --list
 
-# Export all saved playlists, including liked songs
-exportify-cli.exe --all
+# Export all saved playlists, including liked songs with Artist and Album URIs
+exportify-cli.exe --all --uris
 
-# Export playlist whose name is "COCHE"
-python exportify-cli.py -p COCHE
+# Export playlist whose name is "COCHE" to JSON
+python exportify-cli.py -p COCHE -f json
 
-# Export playlist whose ID is "2VqAIceMCzBRhzq6zVmDZw"
-exportify-cli.exe -p 2VqAIceMCzBRhzq6zVmDZw
+# Export playlist whose ID is "2VqAIceMCzBRhzq6zVmDZw" to current directory
+exportify-cli.exe -p 2VqAIceMCzBRhzq6zVmDZw --output .
+
+# Export playlist with its URL
+exportify-cli.exe -p https://open.spotify.com/playlist/2VqAIceMCzBRhzq6zVmDZw?si=16df8ae16c2d492b
+
+# Export playlists "Instrumental" and "COCHE" to CSV without progress bar
+python exportify-cli.py -p instr -p COCHE -f csv --no-bar
 ```
