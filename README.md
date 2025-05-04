@@ -94,3 +94,11 @@ exportify-cli.exe -p https://open.spotify.com/playlist/2VqAIceMCzBRhzq6zVmDZw?si
 # Export playlists "Instrumental" and "COCHE" to CSV without progress bar
 python exportify-cli.py -p instr -p COCHE -f csv --no-bar
 ```
+
+---
+
+## Building:
+I used [PyInstaller](https://pyinstaller.readthedocs.io/en/stable/) to build the windows binary with this command:
+```bash
+pyinstaller --onefile .\exportify-cli.py
+```
