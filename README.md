@@ -52,11 +52,12 @@ Options:
                                   Spotify playlist name, ID, URL, or URI;
                                   repeatable.
     -l, --list                    List available playlists.
-    -c, --config PATH             Path to configuration file.  [default:
-                                  config.cfg]
-    -o, --output PATH             Directory to save exported files.  [default:
-                                  ./playlists]
-    -f, --format [csv|json]       Output file format.  [default: csv]
+    -c, --config PATH             Path to configuration file (if omitted, uses
+                                  ./config.cfg next to this script).
+    -o, --output PATH             Directory to save exported files (if
+                                  omitted, uses ./playlists).
+    -f, --format [csv|json]       Output file format (if omitted, defaults to
+                                  'csv').
     --uris                        Include album and artist URIs.
     --external-ids                Include track ISRC and album UPC.
     --no-bar                      Hide progress bar.

@@ -102,17 +102,17 @@ Now after creating the app, press the Settings button on the upper right corner.
 Copy the Client ID, Client Secret and Redirect URI and paste them below.""")
 
     spotify_cfg = {
-        "client_id": click.prompt("Spotify Client ID", type=str),
+        "client_id": click.prompt("Spotify Client ID", type=str).strip(),
         "client_secret": click.prompt(
             "Spotify Client Secret",
             hide_input=True,
             type=str,
-        ),
+        ).strip(),
         "redirect_uri": click.prompt(
             "Redirect URI",
             type=str,
             default="http://127.0.1:3000/callback",
-        ),
+        ).strip(),
     }
 
     config["spotify"] = spotify_cfg
@@ -122,7 +122,7 @@ Copy the Client ID, Client Secret and Redirect URI and paste them below.""")
     # Write initial config
     with config_path.open("w") as f:
         config.write(f)
-    logger.info(f"Wrote new config to {config_path}")
+        logger.info(f"Wrote new config to {config_path}")
     # Add CLI defaults
     ensure_exportify_cli(config, config_path)
     return config
@@ -143,8 +143,7 @@ def init_spotify_client(cfg: configparser.ConfigParser) -> spotipy.Spotify:
         client_secret=creds["client_secret"],
         redirect_uri=creds["redirect_uri"],
         scope="playlist-read-private playlist-read-collaborative user-library-read",
-        open_browser=True,
-        cache_path=".cache",
+        cache_path=Path(__file__).parent / Path(".cache"),
     )
     return spotipy.Spotify(auth_manager=auth, retries=10)
 
@@ -463,19 +462,17 @@ class CustomCommand(click.Command):
     "-c",
     "--config",
     "config",
-    default="config.cfg",
-    show_default=True,
+    default=None,
     type=click.Path(),
-    help="Path to configuration file.",
+    help="Path to configuration file (if omitted, uses ./config.cfg next to this script).",
 )
 @optgroup.option(
     "-o",
     "--output",
     "output_param",
     default="./playlists",
-    show_default=True,
     type=click.Path(),
-    help="Directory to save exported files.",
+    help="Directory to save exported files (if omitted, uses ./playlists).",
 )
 @optgroup.option(
     "-f",
@@ -483,8 +480,7 @@ class CustomCommand(click.Command):
     "format_param",
     type=click.Choice(["csv", "json"]),
     default="csv",
-    show_default=True,
-    help="Output file format.",
+    help="Output file format (if omitted, defaults to 'csv').",
 )
 @optgroup.option(
     "--uris",
@@ -519,7 +515,7 @@ def main(
     export_all: bool,
     playlist: tuple[str, ...],
     list_only: bool,
-    config: str,
+    config: None | str,
     output_param: str,
     format_param: str,
     uris_flag: bool,
@@ -532,7 +528,12 @@ def main(
         click.echo(main.get_help(ctx=click.get_current_context()))
         sys.exit(1)
 
-    cfg_path = Path(config)
+    if config:
+        cfg_path = Path(config).expanduser()
+        if cfg_path.is_dir():
+            cfg_path = cfg_path / Path("config.cfg")
+    else:
+        cfg_path = Path(__file__).parent / Path("config.cfg")
     cfg = load_config(cfg_path)
 
     # Resolve config vs CLI
