@@ -10,15 +10,18 @@ from typing import Any
 
 import click
 import spotipy
+from click_option_group import OptionGroup, optgroup
 from spotipy.oauth2 import SpotifyOAuth
 from tabulate import tabulate
 from tqdm.auto import tqdm
 
 # Default options for the CLI (used in [exportify-cli] section)
 CLI_DEFAULTS = {
+    "format": "csv",
+    "output": "./playlists",
     "uris": "false",
     "external_ids": "false",
-    "with_bar": "true",
+    "no_bar": "false",
 }
 
 # Default bar format for progress bars
@@ -182,14 +185,14 @@ class SpotifyExporter:
         file_format: str,
         include_uris: bool,
         external_ids: bool,
-        with_bar_flag: bool,
+        with_bar: bool,
     ) -> None:
         """Initialize the exporter with a Spotify client."""
         self.spotify = spotify_client
         self.file_format = file_format
         self.include_uris = include_uris
         self.external_ids = external_ids
-        self.with_bar_flag = with_bar_flag
+        self.with_bar = with_bar
         self.exported_playlists = 0
         self.exported_tracks = 0
 
@@ -223,7 +226,7 @@ class SpotifyExporter:
 
             pbar = (
                 tqdm(total=total, desc=desc_text, unit="album", bar_format=bar_format)
-                if show_bar and self.with_bar_flag
+                if show_bar and self.with_bar
                 else None
             )
 
@@ -268,7 +271,7 @@ class SpotifyExporter:
 
         pbar = (
             tqdm(total=total, desc=desc_text, unit="track", bar_format=bar_format)
-            if show_bar and self.with_bar_flag
+            if show_bar and self.with_bar
             else None
         )
         if pbar:
@@ -429,99 +432,124 @@ class SpotifyExporter:
         )
 
 
-@click.command()
-@click.help_option("-h", "--help")
-@click.option(
-    "--config",
-    "-c",
-    default="config.cfg",
-    type=click.Path(),
-    help="Path to configuration file",
-)
-@click.option(
-    "--output",
-    "-o",
-    default="./playlists",
-    type=click.Path(),
-    help="Directory to save files",
-)
-@click.option(
-    "--format",
-    "-f",
-    "file_format",
-    type=click.Choice(["csv", "json"]),
-    default="csv",
-    help="Output file format",
-)
-@click.option(
-    "--all",
-    "-a",
-    "export_all",
-    is_flag=True,
-    help="Export all playlists",
-)
-@click.option(
-    "--playlist",
+# Custom command class to override usage line
+class CustomCommand(click.Command):
+    def format_usage(self, ctx, formatter) -> None:
+        # Override the usage display
+        formatter.write_text(
+            "Usage: exportify-cli.py (-a | -p NAME|ID|URL|URI [-p ...] | -l) [OPTIONS]\n",
+        )
+
+
+@click.command(cls=CustomCommand)
+@optgroup.group(cls=OptionGroup)
+@optgroup.option("-a", "--all", "export_all", is_flag=True, help="Export all playlists")
+@optgroup.option(
     "-p",
+    "--playlist",
     "playlist",
     multiple=True,
-    help="Names, URLs or IDs of playlists to export",
+    metavar="NAME|ID|URL|URI",
+    help="Spotify playlist name, ID, URL, or URI; repeatable.",
 )
-@click.option(
-    "--list",
+@optgroup.option(
     "-l",
+    "--list",
     "list_only",
     is_flag=True,
-    help="List available playlists",
+    help="List available playlists.",
 )
-@click.option(
-    "--uris/--no-uris",
-    "include_uris",
-    default=None,
-    help="Include album and artist URIs (overrides config)",
+@optgroup.option(
+    "-c",
+    "--config",
+    "config",
+    default="config.cfg",
+    show_default=True,
+    type=click.Path(),
+    help="Path to configuration file.",
 )
-@click.option(
-    "--external-ids/--no-external-ids",
-    "external_ids",
-    default=None,
-    help="Include track ISRC and album UPC (overrides config)",
+@optgroup.option(
+    "-o",
+    "--output",
+    "output_param",
+    default="./playlists",
+    show_default=True,
+    type=click.Path(),
+    help="Directory to save exported files.",
 )
-@click.option(
-    "--with-bar/--no-bar",
-    "with_bar_flag",
+@optgroup.option(
+    "-f",
+    "--format",
+    "format_param",
+    type=click.Choice(["csv", "json"]),
+    default="csv",
+    show_default=True,
+    help="Output file format.",
+)
+@optgroup.option(
+    "--uris",
+    "uris_flag",
     default=None,
-    help="Show or hide progress bar (overrides config)",
+    is_flag=True,
+    help="Include album and artist URIs.",
+)
+@optgroup.option(
+    "--external-ids",
+    "external_ids_flag",
+    default=None,
+    is_flag=True,
+    help="Include track ISRC and album UPC.",
+)
+@optgroup.option(
+    "--no-bar",
+    "no_bar_flag",
+    default=None,
+    is_flag=True,
+    help="Hide progress bar.",
+)
+@click.help_option("-h", "--help")
+@click.version_option(
+    "0.2",
+    "-v",
+    "--version",
+    prog_name="exportify-cli",
+    message="%(prog)s v%(version)s",
 )
 def main(
-    config: str,
-    output: str,
-    file_format: str,
     export_all: bool,
     playlist: tuple[str, ...],
     list_only: bool,
-    include_uris: bool,
-    external_ids: bool,
-    with_bar_flag: bool,
+    config: str,
+    output_param: str,
+    format_param: str,
+    uris_flag: bool,
+    external_ids_flag: bool,
+    no_bar_flag: bool,
 ) -> None:
-    """CLI entrypoint for exporting Spotify playlists."""
+    """Export Spotify playlists to CSV or JSON."""
+    # If no --all, --playlist or --list options are given, show help
+    if not export_all and not playlist and not list_only:
+        click.echo(main.get_help(ctx=click.get_current_context()))
+        sys.exit(1)
+
     cfg_path = Path(config)
     cfg = load_config(cfg_path)
 
     # Resolve config vs CLI
-    uris_flag = (
-        include_uris
-        if include_uris is not None
-        else cfg.getboolean("exportify-cli", "uris")
+    file_format = format_param if format_param else cfg.get("exportify-cli", "format")
+    output = output_param if output_param else cfg.get("exportify-cli", "output")
+    include_uris = (
+        uris_flag if uris_flag is not None else cfg.getboolean("exportify-cli", "uris")
     )
-    ext_flag = (
-        external_ids
-        if external_ids is not None
+    external_ids = (
+        external_ids_flag
+        if external_ids_flag is not None
         else cfg.getboolean("exportify-cli", "external_ids")
     )
-    bar_flag = (
-        with_bar_flag
-        if with_bar_flag is not None
-        else cfg.getboolean("exportify-cli", "with_bar")
+    with_bar = not (
+        no_bar_flag
+        if no_bar_flag is not None
+        else cfg.getboolean("exportify-cli", "no_bar")
     )
 
     client = init_spotify_client(cfg)
@@ -529,9 +557,9 @@ def main(
     exporter = SpotifyExporter(
         spotify_client=client,
         file_format=file_format,
-        include_uris=uris_flag,
-        external_ids=ext_flag,
-        with_bar_flag=bar_flag,
+        include_uris=include_uris,
+        external_ids=external_ids,
+        with_bar=with_bar,
     )
 
     playlist = list(playlist)
@@ -608,6 +636,7 @@ def main(
             f"Successfully exported {exporter.exported_tracks} tracks "
             f"from {exporter.exported_playlists} playlists.",
         )
+    click.echo()
     sys.exit(0)
 
 
