@@ -33,6 +33,9 @@ DEFAULT_BAR_FORMAT = (
 # Max length for playlist name in progress bar
 DESC_LENGTH = 21
 
+# ex: "37i9dQZF1DXcBWIGoYBM5M"
+PLAYLIST_ID_LENGTH = 22
+
 # Configure logging
 logging.basicConfig(
     level=logging.WARNING,
@@ -194,6 +197,7 @@ class SpotifyExporter:
         self.with_bar = with_bar
         self.exported_playlists = 0
         self.exported_tracks = 0
+        self.album_cache: dict[str, dict] = {}
 
     def _fetch_all_items(
         self,
@@ -203,9 +207,12 @@ class SpotifyExporter:
         desc: str | None = None,
         bar_format: str = DEFAULT_BAR_FORMAT,
         show_bar: bool = True,
+        initial: int = 0,
+        total_override: int | None = None,
         **kwargs: Any,
     ) -> list[dict]:
-        """Fetch all paginated or batched items from a Spotify endpoint.
+        """
+        Fetch all paginated or batched items from a Spotify endpoint.
 
         - If the first positional arg is a list, treats it as an ID list for a batch
           endpoint (e.g. `self.spotify.albums`), calls in chunks of 20, and returns
@@ -218,16 +225,21 @@ class SpotifyExporter:
         # --- Batch mode (e.g. spotify.albums) ---
         if args and isinstance(args[0], list):
             id_list: list[str] = args[0]
-            total = len(id_list)
+            total = total_override if total_override is not None else len(id_list)
             desc_text = desc or fetch_func.__name__
             # build 20-item batches
-            batches = [id_list[i : i + 20] for i in range(0, total, 20)]
+            batches = [
+                id_list[i : i + 20] for i in range(0, total, 20) if id_list[i : i + 20]
+            ]
 
             pbar = (
                 tqdm(total=total, desc=desc_text, unit="album", bar_format=bar_format)
                 if show_bar and self.with_bar
                 else None
             )
+            # Advance the bar to reflect items already in cache
+            if pbar and initial:
+                pbar.update(initial)
 
             for batch in batches:
                 results = fetch_func(batch, *args[1:], **kwargs)
@@ -371,30 +383,44 @@ class SpotifyExporter:
         #  'video_thumbnail': {'url': None}}
 
         # Batch fetch album details
-        album_ids = list(
-            {
-                i.get("track").get("album").get("id")
-                for i in items
-                if i.get("track")
-                and i.get("track").get("album")
-                and i.get("track").get("album").get("id")
-            },
-        )
-        album_items = self._fetch_all_items(
-            self.spotify.albums,
-            "albums",
-            album_ids,
-            desc="Fetching album details: ",
-        )
-        albums = {a.get("id"): a for a in album_items if a}
+        album_ids = {
+            i.get("track").get("album").get("id")
+            for i in items
+            if i.get("track")
+            and i.get("track").get("album")
+            and i.get("track").get("album").get("id")
+        }
+
+        # Figure out which albums we haven't fetched yet
+        ids_to_fetch = [aid for aid in album_ids if aid not in self.album_cache]
+        already_cached = len(album_ids) - len(ids_to_fetch)
+
+        # Fetch only the missing albums
+        if ids_to_fetch:
+            new_albums = self._fetch_all_items(
+                self.spotify.albums,
+                "albums",
+                ids_to_fetch,
+                desc="Fetching album details: ",
+                initial=already_cached,
+                total_override=len(album_ids),
+            )
+            for alb in new_albums:
+                if alb and alb.get("id"):
+                    self.album_cache[alb["id"]] = alb
+
+        # Build a lookup from cache
+        albums = {aid: self.album_cache[aid] for aid in album_ids}
 
         # Build export data
         export_data = []
         for i in items:
             track = i.get("track") or {}
             album = albums.get(track.get("album", {}).get("id"), {})
-            artists = [a["name"] for a in track.get("artists", [])]
-            artist_uris = [a["uri"] for a in track.get("artists", [])]
+            artists = [a.get("name") for a in track.get("artists", []) if a.get("name")]
+            artist_uris = [
+                a.get("uri") for a in track.get("artists", []) if a.get("uri")
+            ]
 
             record = {
                 "Track URI": track.get("uri"),
@@ -403,8 +429,7 @@ class SpotifyExporter:
                 "Track Name": track.get("name"),
                 "Album Name": album.get("name"),
                 "Artist Name(s)": artists,
-                "Release Date": album.get("release_date")
-                or (track.get("release_date")),
+                "Release Date": album.get("release_date") or track.get("release_date"),
                 "Duration_ms": track.get("duration_ms"),
                 "Popularity": track.get("popularity"),
                 "Added By": i.get("added_by", {}).get("id"),
@@ -613,7 +638,7 @@ def main(
                 )
 
             # User may be trying to export a playlist they have not saved
-            elif term.isalnum() and len(term) == 22:
+            elif term.isalnum() and len(term) == PLAYLIST_ID_LENGTH:
                 try:
                     pl = client.playlist(term)
                     if pl:
