@@ -83,7 +83,7 @@ def ensure_exportify_cli(config: configparser.ConfigParser, config_path: Path) -
 
 def load_config(config_path: Path) -> configparser.ConfigParser:
     """Load configuration, validate, prompt if needed, and ensure CLI defaults."""
-    config = configparser.ConfigParser()
+    config = configparser.ConfigParser(inline_comment_prefixes=("#", ";"))
     # Read existing
     if config_path.exists():
         config.read(config_path)
