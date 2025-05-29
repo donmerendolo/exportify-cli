@@ -52,15 +52,17 @@ Options:
                                   Spotify playlist name, ID, URL, or URI;
                                   repeatable.
     -l, --list                    List available playlists.
-    -c, --config PATH             Path to configuration file (if omitted, uses
+    -c, --config PATH             Path to configuration file (default is
                                   ./config.cfg next to this script).
-    -o, --output PATH             Directory to save exported files (if
-                                  omitted, uses ./playlists).
-    -f, --format [csv|json]       Output file format (if omitted, defaults to
-                                  'csv').
+    -o, --output PATH             Directory to save exported files (default is
+                                  ./playlists).
+    -f, --format [csv|json]       Output file format (defaults to 'csv').
     --uris                        Include album and artist URIs.
     --external-ids                Include track ISRC and album UPC.
     --no-bar                      Hide progress bar.
+    --sort-key TEXT               Key to sort tracks by (default is
+                                  'spotify_default').
+    --reverse                     Reverse the sort order.
   -h, --help                      Show this message and exit.
   -v, --version                   Show the version and exit.
 ```
@@ -73,7 +75,7 @@ Options:
 
 - A single command can export multiple playlists by using the `-p` option multiple times.
 
-- The default fields are: `Track URI`, `Track Name`, `Album Name`, `Artist Name(s)`, `Release Date`, `Duration_ms`, `Popularity`, `Added By`, `Added At`, `Record Label`. With flags, `Album URI(s)`, `Artist URI(s)`, `Track ISRC` and `Album UPC` can be included too. If you want any other field to be added, feel free to open an issue or PR.
+- The default fields are: `Position`, `Track URI`, `Track Name`, `Album Name`, `Artist Name(s)`, `Release Date`, `Duration_ms`, `Popularity`, `Added By`, `Added At`, `Record Label`. With flags, `Album URI(s)`, `Artist URI(s)`, `Track ISRC` and `Album UPC` can be included too. If you want any other field to be added, feel free to open an issue or PR.
 
 ### Examples:
 ```
@@ -83,17 +85,17 @@ python exportify-cli.py --list
 # Export all saved playlists, including liked songs with Artist and Album URIs
 exportify-cli.exe --all --uris
 
-# Export playlist whose name is "COCHE" to JSON
-python exportify-cli.py -p COCHE -f json
+# Export playlist whose name is "COCHE" to JSON in reverse order
+python exportify-cli.py -p COCHE -f json --reverse
 
-# Export playlist whose ID is "2VqAIceMCzBRhzq6zVmDZw" to current directory
-exportify-cli.exe -p 2VqAIceMCzBRhzq6zVmDZw --output .
+# Export playlist whose ID is "2VqAIceMCzBRhzq6zVmDZw" to current directory, sorted by Added At
+exportify-cli.exe -p 2VqAIceMCzBRhzq6zVmDZw --output . --sort-key "Added At"
 
 # Export playlist with its URL
 exportify-cli.exe -p https://open.spotify.com/playlist/2VqAIceMCzBRhzq6zVmDZw?si=16df8ae16c2d492b
 
-# Export playlists "Instrumental" and "COCHE" to CSV without progress bar
-python exportify-cli.py -p instr -p COCHE -f csv --no-bar
+# Export playlists "Instrumental" and "COCHE" to CSV without progress bar, sorted by Popularity
+python exportify-cli.py -p instr -p COCHE -f csv --no-bar --sort-key "popularity"
 ```
 
 ---

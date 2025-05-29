@@ -22,6 +22,8 @@ CLI_DEFAULTS = {
     "uris": "false",
     "external_ids": "false",
     "no_bar": "false",
+    "sort_key": "spotify_default",
+    "reverse": "false",
 }
 
 # Default bar format for progress bars
@@ -188,6 +190,8 @@ class SpotifyExporter:
         include_uris: bool,
         external_ids: bool,
         with_bar: bool,
+        sort_key: str | None,
+        reverse_order: bool,
     ) -> None:
         """Initialize the exporter with a Spotify client."""
         self.spotify = spotify_client
@@ -195,6 +199,8 @@ class SpotifyExporter:
         self.include_uris = include_uris
         self.external_ids = external_ids
         self.with_bar = with_bar
+        self.sort_key = sort_key
+        self.reverse_order = reverse_order
         self.exported_playlists = 0
         self.exported_tracks = 0
         self.album_cache: dict[str, dict] = {}
@@ -414,8 +420,8 @@ class SpotifyExporter:
 
         # Build export data
         export_data = []
-        for i in items:
-            track = i.get("track") or {}
+        for i, item in enumerate(items, start=1):
+            track = item.get("track") or {}
             album = albums.get(track.get("album", {}).get("id"), {})
             artists = [a.get("name") for a in track.get("artists", []) if a.get("name")]
             artist_uris = [
@@ -423,6 +429,7 @@ class SpotifyExporter:
             ]
 
             record = {
+                "Position": i,
                 "Track URI": track.get("uri"),
                 "Artist URI(s)": artist_uris,
                 "Album URI": album.get("uri"),
@@ -432,21 +439,29 @@ class SpotifyExporter:
                 "Release Date": album.get("release_date") or track.get("release_date"),
                 "Duration_ms": track.get("duration_ms"),
                 "Popularity": track.get("popularity"),
-                "Added By": i.get("added_by", {}).get("id"),
-                "Added At": i.get("added_at"),
+                "Added By": item.get("added_by", {}).get("id"),
+                "Added At": item.get("added_at"),
                 "Record Label": album.get("label"),
                 "Track ISRC": track.get("external_ids", {}).get("isrc"),
                 "Album UPC": album.get("external_ids", {}).get("upc"),
             }
 
-            if not self.include_uris:
+            export_data.append(record)
+
+        if self.sort_key != "spotify_default":
+            export_data.sort(key=lambda x: str(x[self.sort_key]) or "")
+
+        if self.reverse_order:
+            export_data.reverse()
+
+        if not self.include_uris:
+            for record in export_data:
                 record.pop("Artist URI(s)", None)
                 record.pop("Album URI", None)
-            if not self.external_ids:
+        if not self.external_ids:
+            for record in export_data:
                 record.pop("Track ISRC", None)
                 record.pop("Album UPC", None)
-
-            export_data.append(record)
 
         write_file(filepath, export_data, self.file_format)
         self.exported_playlists += 1
@@ -489,7 +504,7 @@ class CustomCommand(click.Command):
     "config",
     default=None,
     type=click.Path(),
-    help="Path to configuration file (if omitted, uses ./config.cfg next to this script).",
+    help="Path to configuration file (default is ./config.cfg next to this script).",
 )
 @optgroup.option(
     "-o",
@@ -497,7 +512,7 @@ class CustomCommand(click.Command):
     "output_param",
     default="./playlists",
     type=click.Path(),
-    help="Directory to save exported files (if omitted, uses ./playlists).",
+    help="Directory to save exported files (default is ./playlists).",
 )
 @optgroup.option(
     "-f",
@@ -505,7 +520,7 @@ class CustomCommand(click.Command):
     "format_param",
     type=click.Choice(["csv", "json"]),
     default=None,
-    help="Output file format (if omitted, defaults to 'csv').",
+    help="Output file format (defaults to 'csv').",
 )
 @optgroup.option(
     "--uris",
@@ -528,9 +543,22 @@ class CustomCommand(click.Command):
     is_flag=True,
     help="Hide progress bar.",
 )
+@optgroup.option(
+    "--sort-key",
+    "sort_key",
+    default=None,
+    help="Key to sort tracks by (default is 'spotify_default').",
+)
+@optgroup.option(
+    "--reverse",
+    "reverse_order",
+    default=None,
+    is_flag=True,
+    help="Reverse the sort order.",
+)
 @click.help_option("-h", "--help")
 @click.version_option(
-    "0.2",
+    "0.3",
     "-v",
     "--version",
     prog_name="exportify-cli",
@@ -546,6 +574,8 @@ def main(
     uris_flag: bool,
     external_ids_flag: bool,
     no_bar_flag: bool,
+    sort_key: str | None,
+    reverse_order: bool,
 ) -> None:
     """Export Spotify playlists to CSV or JSON."""
     # If no --all, --playlist or --list options are given, show help
@@ -577,6 +607,51 @@ def main(
         if no_bar_flag is not None
         else cfg.getboolean("exportify-cli", "no_bar")
     )
+    sort_key = (
+        sort_key if sort_key is not None else cfg.get("exportify-cli", "sort_key")
+    )
+    keys = [
+        "Position",
+        "Track URI",
+        "Artist URI(s)",
+        "Album URI",
+        "Track Name",
+        "Album Name",
+        "Artist Name(s)",
+        "Release Date",
+        "Duration_ms",
+        "Popularity",
+        "Added By",
+        "Added At",
+        "Record Label",
+        "Track ISRC",
+        "Album UPC",
+        "spotify_default",
+    ]
+    # Find the actual key that matches case-insensitively
+    actual_key = None
+    found = False
+    for key in keys:
+        if key.lower().replace(" ", "").replace("_", "").replace("(", "").replace(
+            ")", ""
+        ) == sort_key.lower().replace(" ", "").replace("_", "").replace(
+            "(", ""
+        ).replace(")", ""):
+            actual_key = key
+            found = True
+            break
+
+    if not found:
+        logger.warning(
+            f"Sort key '{sort_key}' not found in keys. Available keys: {keys}."
+        )
+        sys.exit(1)
+
+    reverse_order = (
+        reverse_order
+        if reverse_order is not None
+        else cfg.getboolean("exportify-cli", "reverse", fallback=False)
+    )
 
     client = init_spotify_client(cfg)
 
@@ -586,6 +661,8 @@ def main(
         include_uris=include_uris,
         external_ids=external_ids,
         with_bar=with_bar,
+        sort_key=actual_key,
+        reverse_order=reverse_order,
     )
 
     playlist = list(playlist)
