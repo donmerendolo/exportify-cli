@@ -56,7 +56,8 @@ Options:
                                   ./config.cfg next to this script).
     -o, --output PATH             Directory to save exported files (default is
                                   ./playlists).
-    -f, --format [csv|json]       Output file format (defaults to 'csv').
+    -f, --format [csv|json]       Output file format (defaults to 'csv');
+                                  repeatable.
     --uris                        Include album and artist URIs.
     --external-ids                Include track ISRC and album UPC.
     --no-bar                      Hide progress bar.
@@ -91,8 +92,8 @@ python exportify-cli.py -p COCHE -f json --reverse
 # Export playlist whose ID is "2VqAIceMCzBRhzq6zVmDZw" to current directory, sorted by Added At
 exportify-cli.exe -p 2VqAIceMCzBRhzq6zVmDZw --output . --sort-key "Added At"
 
-# Export playlist with its URL
-exportify-cli.exe -p https://open.spotify.com/playlist/2VqAIceMCzBRhzq6zVmDZw?si=16df8ae16c2d492b
+# Export playlist with its URL to both JSON and CSV
+exportify-cli.exe -f json -f csv -p https://open.spotify.com/playlist/2VqAIceMCzBRhzq6zVmDZw?si=16df8ae16c2d492b
 
 # Export playlists "Instrumental" and "COCHE" to CSV without progress bar, sorted by Popularity
 python exportify-cli.py -p instr -p COCHE -f csv --no-bar --sort-key "popularity"

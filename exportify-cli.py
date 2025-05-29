@@ -153,31 +153,33 @@ def init_spotify_client(cfg: configparser.ConfigParser) -> spotipy.Spotify:
     return spotipy.Spotify(auth_manager=auth, retries=10)
 
 
-def sanitize_filename(name: str, ext: str) -> str:
+def sanitize_filename(name: str) -> str:
     """Convert a playlist name into a safe filename."""
     safe = "".join(c if c.isalnum() or c in (" ", "_", "-") else "_" for c in name)
-    return f"{safe.strip().replace(' ', '_').lower()}.{ext}"
+    return f"{safe.strip().replace(' ', '_').lower()}"
 
 
-def write_file(file_path: Path, data: list[dict], file_format: str = "csv") -> None:
+def write_file(file_path: Path, data: list[dict], file_formats) -> None:
     """Write list of dicts to file."""
     if not data:
         logger.warning("No data to write; skipping file.")
         return
 
-    if file_format == "csv":
+    if "csv" in file_formats:
         headers = list(data[0].keys())
-        with file_path.open("w", newline="", encoding="utf-8") as csvfile:
+        with file_path.with_suffix(".csv").open(
+            "w", newline="", encoding="utf-8"
+        ) as csvfile:
             writer = csv.DictWriter(csvfile, fieldnames=headers)
             writer.writeheader()
             for row in data:
                 writer.writerow(row)
+        logger.info(f"Exported to {file_path}.csv")
 
-    elif file_format == "json":
-        with file_path.open("w", encoding="utf-8") as jsonfile:
+    if "json" in file_formats:
+        with file_path.with_suffix(".json").open("w", encoding="utf-8") as jsonfile:
             json.dump(data, jsonfile, ensure_ascii=False, indent=4)
-
-    logger.info(f"Exported to {file_path}")
+        logger.info(f"Exported to {file_path}.json")
 
 
 class SpotifyExporter:
@@ -186,7 +188,7 @@ class SpotifyExporter:
     def __init__(
         self,
         spotify_client: spotipy.Spotify,
-        file_format: str,
+        file_formats: list[str],
         include_uris: bool,
         external_ids: bool,
         with_bar: bool,
@@ -195,7 +197,7 @@ class SpotifyExporter:
     ) -> None:
         """Initialize the exporter with a Spotify client."""
         self.spotify = spotify_client
-        self.file_format = file_format
+        self.file_formats = file_formats
         self.include_uris = include_uris
         self.external_ids = external_ids
         self.with_bar = with_bar
@@ -345,7 +347,7 @@ class SpotifyExporter:
         """Export a single playlist to CSV file."""
         name, pid = playlist["name"], playlist["id"]
         output_dir.mkdir(parents=True, exist_ok=True)
-        filepath = output_dir / sanitize_filename(name, self.file_format)
+        filepath = output_dir / sanitize_filename(name)
 
         # Format description for progress bar
         desc = (
@@ -463,12 +465,13 @@ class SpotifyExporter:
                 record.pop("Track ISRC", None)
                 record.pop("Album UPC", None)
 
-        write_file(filepath, export_data, self.file_format)
+        write_file(filepath, export_data, self.file_formats)
         self.exported_playlists += 1
         self.exported_tracks += len(export_data)
-        click.echo(
-            f"Exported {len(export_data)} tracks from '{name}' to {filepath}",
-        )
+        for ext in self.file_formats:
+            click.echo(
+                f"Exported {len(export_data)} tracks from '{name}' to {filepath}.{ext}",
+            )
 
 
 # Custom command class to override usage line
@@ -518,9 +521,10 @@ class CustomCommand(click.Command):
     "-f",
     "--format",
     "format_param",
-    type=click.Choice(["csv", "json"]),
+    multiple=True,
     default=None,
-    help="Output file format (defaults to 'csv').",
+    type=click.Choice(["csv", "json"]),
+    help="Output file format (defaults to 'csv'); repeatable.",
 )
 @optgroup.option(
     "--uris",
@@ -592,7 +596,15 @@ def main(
     cfg = load_config(cfg_path)
 
     # Resolve config vs CLI
-    file_format = format_param if format_param else cfg.get("exportify-cli", "format")
+    file_formats = format_param if format_param else None
+    if file_formats is None:
+        file_formats = []
+        if "csv" in cfg.get("exportify-cli", "format"):
+            file_formats.append("csv")
+        if "json" in cfg.get("exportify-cli", "format"):
+            file_formats.append("json")
+    file_formats = list(set(file_formats))
+
     output = output_param if output_param else cfg.get("exportify-cli", "output")
     include_uris = (
         uris_flag if uris_flag is not None else cfg.getboolean("exportify-cli", "uris")
@@ -657,7 +669,7 @@ def main(
 
     exporter = SpotifyExporter(
         spotify_client=client,
-        file_format=file_format,
+        file_formats=file_formats,
         include_uris=include_uris,
         external_ids=external_ids,
         with_bar=with_bar,
