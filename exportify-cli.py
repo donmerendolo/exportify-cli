@@ -11,6 +11,7 @@ from typing import Any
 import click
 import spotipy
 from click_option_group import OptionGroup, optgroup
+from pathvalidate import sanitize_filename
 from spotipy.oauth2 import SpotifyOAuth
 from tabulate import tabulate
 from tqdm.auto import tqdm
@@ -153,33 +154,24 @@ def init_spotify_client(cfg: configparser.ConfigParser) -> spotipy.Spotify:
     return spotipy.Spotify(auth_manager=auth, retries=10)
 
 
-def sanitize_filename(name: str) -> str:
-    """Convert a playlist name into a safe filename."""
-    safe = "".join(c if c.isalnum() or c in (" ", "_", "-") else "_" for c in name)
-    return f"{safe.strip().replace(' ', '_').lower()}"
-
-
-def write_file(file_path: Path, data: list[dict], file_formats) -> None:
+def write_file(
+    file_path: Path, headers: list[str], data: list[dict], file_formats
+) -> None:
     """Write list of dicts to file."""
-    if not data:
-        logger.warning("No data to write; skipping file.")
-        return
-
     if "csv" in file_formats:
-        headers = list(data[0].keys())
-        with file_path.with_suffix(".csv").open(
-            "w", newline="", encoding="utf-8"
-        ) as csvfile:
+        csv_path = Path(str(file_path) + ".csv")
+        with csv_path.open("w", newline="", encoding="utf-8") as csvfile:
             writer = csv.DictWriter(csvfile, fieldnames=headers)
             writer.writeheader()
             for row in data:
                 writer.writerow(row)
-        logger.info(f"Exported to {file_path}.csv")
+        logger.info(f"Exported to {csv_path}")
 
     if "json" in file_formats:
-        with file_path.with_suffix(".json").open("w", encoding="utf-8") as jsonfile:
+        json_path = Path(str(file_path) + ".json")
+        with json_path.open("w", encoding="utf-8") as jsonfile:
             json.dump(data, jsonfile, ensure_ascii=False, indent=4)
-        logger.info(f"Exported to {file_path}.json")
+        logger.info(f"Exported to {json_path}")
 
 
 class SpotifyExporter:
@@ -347,7 +339,7 @@ class SpotifyExporter:
         """Export a single playlist to CSV file."""
         name, pid = playlist["name"], playlist["id"]
         output_dir.mkdir(parents=True, exist_ok=True)
-        filepath = output_dir / sanitize_filename(name)
+        filepath = output_dir / sanitize_filename(f"{name} [{pid}]")
 
         # Format description for progress bar
         desc = (
@@ -422,6 +414,23 @@ class SpotifyExporter:
 
         # Build export data
         export_data = []
+        headers = [
+            "Position",
+            "Track URI",
+            "Artist URI(s)",
+            "Album URI",
+            "Track Name",
+            "Album Name",
+            "Artist Name(s)",
+            "Release Date",
+            "Duration_ms",
+            "Popularity",
+            "Added By",
+            "Added At",
+            "Record Label",
+            "Track ISRC",
+            "Album UPC",
+        ]
         for i, item in enumerate(items, start=1):
             track = item.get("track") or {}
             album = albums.get(track.get("album", {}).get("id"), {})
@@ -430,23 +439,28 @@ class SpotifyExporter:
                 a.get("uri") for a in track.get("artists", []) if a.get("uri")
             ]
 
-            record = {
-                "Position": i,
-                "Track URI": track.get("uri"),
-                "Artist URI(s)": artist_uris,
-                "Album URI": album.get("uri"),
-                "Track Name": track.get("name"),
-                "Album Name": album.get("name"),
-                "Artist Name(s)": artists,
-                "Release Date": album.get("release_date") or track.get("release_date"),
-                "Duration_ms": track.get("duration_ms"),
-                "Popularity": track.get("popularity"),
-                "Added By": item.get("added_by", {}).get("id"),
-                "Added At": item.get("added_at"),
-                "Record Label": album.get("label"),
-                "Track ISRC": track.get("external_ids", {}).get("isrc"),
-                "Album UPC": album.get("external_ids", {}).get("upc"),
-            }
+            record = dict(
+                zip(
+                    headers,
+                    [
+                        i,
+                        track.get("uri"),
+                        artist_uris,
+                        album.get("uri"),
+                        track.get("name"),
+                        album.get("name"),
+                        artists,
+                        album.get("release_date") or track.get("release_date"),
+                        track.get("duration_ms"),
+                        track.get("popularity"),
+                        item.get("added_by", {}).get("id"),
+                        item.get("added_at"),
+                        album.get("label"),
+                        track.get("external_ids", {}).get("isrc"),
+                        album.get("external_ids", {}).get("upc"),
+                    ],
+                )
+            )
 
             export_data.append(record)
 
@@ -457,15 +471,19 @@ class SpotifyExporter:
             export_data.reverse()
 
         if not self.include_uris:
+            headers.pop(headers.index("Artist URI(s)"))
+            headers.pop(headers.index("Album URI"))
             for record in export_data:
                 record.pop("Artist URI(s)", None)
                 record.pop("Album URI", None)
         if not self.external_ids:
+            headers.pop(headers.index("Track ISRC"))
+            headers.pop(headers.index("Album UPC"))
             for record in export_data:
                 record.pop("Track ISRC", None)
                 record.pop("Album UPC", None)
 
-        write_file(filepath, export_data, self.file_formats)
+        write_file(filepath, headers, export_data, self.file_formats)
         self.exported_playlists += 1
         self.exported_tracks += len(export_data)
         for ext in self.file_formats:
@@ -479,7 +497,7 @@ class CustomCommand(click.Command):
     def format_usage(self, ctx, formatter) -> None:
         # Override the usage display
         formatter.write_text(
-            "Usage: exportify-cli.py (-a | -p NAME|ID|URL|URI [-p ...] | -l) [OPTIONS]\n",
+            "Usage: exportify-cli.py (-a | -p NAME|ID|URL|URI [-p ...] | -u ID|URL|URI | -l) [OPTIONS]\n",
         )
 
 
@@ -492,7 +510,15 @@ class CustomCommand(click.Command):
     "playlist",
     multiple=True,
     metavar="NAME|ID|URL|URI",
-    help="Spotify playlist name, ID, URL, or URI; repeatable.",
+    help="Export a Spotify playlist given name, ID, URL, or URI; repeatable.",
+)
+@optgroup.option(
+    "-u",
+    "--user",
+    "user",
+    multiple=True,
+    metavar="ID|URL|URI",
+    help="Export all public playlists of a Spotify user given ID, URL, or URI; repeatable.",
 )
 @optgroup.option(
     "-l",
@@ -562,7 +588,7 @@ class CustomCommand(click.Command):
 )
 @click.help_option("-h", "--help")
 @click.version_option(
-    "0.3",
+    "0.4",
     "-v",
     "--version",
     prog_name="exportify-cli",
@@ -571,6 +597,7 @@ class CustomCommand(click.Command):
 def main(
     export_all: bool,
     playlist: tuple[str, ...],
+    user: tuple[str, ...],
     list_only: bool,
     config: None | str,
     output_param: str,
@@ -582,8 +609,8 @@ def main(
     reverse_order: bool,
 ) -> None:
     """Export Spotify playlists to CSV or JSON."""
-    # If no --all, --playlist or --list options are given, show help
-    if not export_all and not playlist and not list_only:
+    # If no --all, --playlist, --user or --list options are given, show help
+    if not (export_all or playlist or user or list_only):
         click.echo(main.get_help(ctx=click.get_current_context()))
         sys.exit(1)
 
@@ -643,12 +670,12 @@ def main(
     # Find the actual key that matches case-insensitively
     actual_key = None
     found = False
+
+    def normalize_key(s: str) -> str:
+        return re.sub(r"[\s_()]", "", s.lower())
+
     for key in keys:
-        if key.lower().replace(" ", "").replace("_", "").replace("(", "").replace(
-            ")", ""
-        ) == sort_key.lower().replace(" ", "").replace("_", "").replace(
-            "(", ""
-        ).replace(")", ""):
+        if normalize_key(key) == normalize_key(sort_key):
             actual_key = key
             found = True
             break
@@ -699,6 +726,35 @@ def main(
         )
         sys.exit(0)
 
+    users_targets = []
+    if user:
+        user_ids = []
+        for u in user:
+            uid = re.sub(r"^.*users?\/([a-zA-Z0-9]+).*$", r"\1", u)
+            uid = uid.replace("spotify:user:", "")
+            user_ids.append(uid)
+
+        for uid in user_ids:
+            try:
+                items = exporter._fetch_all_items(
+                    client.user_playlists,
+                    "items",
+                    uid,
+                    desc=f"Playlists of {uid}",
+                    show_bar=False,
+                )
+                user_data = client.user(uid)
+
+                users_targets.append(
+                    {
+                        "name": user_data.get("display_name") or uid,
+                        "uid": uid,
+                        "items": items,
+                    }
+                )
+            except spotipy.SpotifyException as e:
+                logger.warning(f"Failed to fetch playlists for user {uid}: {e}")
+
     # Determine targets
     targets = []
     if export_all:
@@ -735,16 +791,28 @@ def main(
                 except spotipy.SpotifyException as e:
                     logger.warning(f"Failed to fetch playlist {term}: {e}")
 
+    if users_targets:
+        for ut in users_targets:
+            ut["targets"] = []
+            for t in ut["items"]:
+                if t["uri"]:
+                    ut["targets"].append(t)
+
     # Deduplicate
     targets = list({p["id"]: p for p in targets}.values())
 
-    if not targets:
+    if not (targets or users_targets):
         click.echo("No matching playlists found.")
         sys.exit(1)
 
     out_dir = Path(output)
     for pl in targets:
         exporter.export_playlist(pl, out_dir)
+
+    for ut in users_targets:
+        user_out_dir = out_dir / Path(sanitize_filename(f"{ut['name']} [{ut['uid']}]"))
+        for pl in ut["targets"]:
+            exporter.export_playlist(pl, user_out_dir)
 
     if exporter.exported_playlists > 1:
         click.echo(

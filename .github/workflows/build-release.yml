@@ -6,6 +6,10 @@ on:
     tags: [ 'v*' ]
   workflow_dispatch:
 
+permissions:
+  actions: none
+  contents: write
+
 jobs:
   build:
     runs-on: ${{ matrix.os }}
@@ -40,7 +44,9 @@ jobs:
       run: uv sync
     
     - name: Build executable
-      run: uvx pyinstaller --onefile --name ${{ matrix.binary_name }} exportify-cli.py
+      run: |
+        uv add pyinstaller
+        uv run pyinstaller --onefile --name ${{ matrix.binary_name }} exportify-cli.py
     
     - name: Upload artifact
       uses: actions/upload-artifact@v5
