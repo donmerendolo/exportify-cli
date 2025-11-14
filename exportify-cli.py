@@ -407,7 +407,14 @@ class SpotifyExporter:
             )
             for alb in new_albums:
                 if alb and alb.get("id"):
-                    self.album_cache[alb["id"]] = alb
+                    self.album_cache[alb["id"]] = {
+                        "id": alb.get("id"),
+                        "uri": alb.get("uri"),
+                        "name": alb.get("name"),
+                        "release_date": alb.get("release_date"),
+                        "label": alb.get("label"),
+                        "external_ids": alb.get("external_ids", {}),
+                    }
 
         # Build a lookup from cache
         albums = {aid: self.album_cache[aid] for aid in album_ids}
@@ -588,7 +595,7 @@ class CustomCommand(click.Command):
 )
 @click.help_option("-h", "--help")
 @click.version_option(
-    "0.4",
+    "0.5",
     "-v",
     "--version",
     prog_name="exportify-cli",
