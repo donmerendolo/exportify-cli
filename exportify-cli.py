@@ -595,7 +595,7 @@ class CustomCommand(click.Command):
 )
 @click.help_option("-h", "--help")
 @click.version_option(
-    "0.5",
+    "0.5.1",
     "-v",
     "--version",
     prog_name="exportify-cli",
