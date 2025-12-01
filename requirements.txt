@@ -129,9 +129,9 @@ setuptools==80.9.0 \
     # via
     #   pyinstaller
     #   pyinstaller-hooks-contrib
-spotipy==2.25.1 \
-    --hash=sha256:18f47d9a0594ced8001b3baa5a4160ea6dcf570abbdad371971f475a81892844 \
-    --hash=sha256:607d3c43722b7e217a7e6c82f17258b798b92a512017d60c06323d62ae814cd7
+spotipy==2.25.2 \
+    --hash=sha256:5ed45c044156ca5518997e2502b1f2c1e7336407cb1fb8fe112d144b4d5282c8 \
+    --hash=sha256:694bc9734d94171716257bf18eea9f1cb2ff8c581e59c74464137433830cf890
     # via exportify-cli
 tabulate==0.9.0 \
     --hash=sha256:0095b12bf5966de529c0feb1fa08671671b3368eec77d7ef7ab114be2c068b3c \
