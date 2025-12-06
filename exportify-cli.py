@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -46,6 +47,22 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(sys.stdout)],
 )
 logger = logging.getLogger(__name__)
+
+
+def get_version():
+    try:
+        version = "VERSION_PLACEHOLDER"
+        if version == "VERSION_PLACEHOLDER":
+            version = (
+                subprocess.check_output(
+                    ["git", "describe", "--tags", "--always"], stderr=subprocess.DEVNULL
+                )
+                .decode("utf-8")
+                .strip()
+            )
+        return version.replace("v", "")
+    except Exception:
+        return "0.0.0"
 
 
 def validate_config(config: configparser.ConfigParser) -> bool:
@@ -595,7 +612,7 @@ class CustomCommand(click.Command):
 )
 @click.help_option("-h", "--help")
 @click.version_option(
-    "0.5.2",
+    get_version(),
     "-v",
     "--version",
     prog_name="exportify-cli",

@@ -41,6 +41,16 @@ jobs:
     
     - name: Sync dependencies
       run: uv sync
+
+    - name: Set version in the code
+      shell: bash
+      run: |
+        VERSION=${GITHUB_REF#refs/tags/v}
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+          sed -i '' "s/VERSION_PLACEHOLDER/$VERSION/" exportify-cli.py
+        else
+          sed -i "s/VERSION_PLACEHOLDER/$VERSION/" exportify-cli.py
+        fi
     
     - name: Build executable
       run: |
