@@ -134,7 +134,7 @@ Copy the Client ID, Client Secret and Redirect URI and paste them below.""")
         "redirect_uri": click.prompt(
             "Redirect URI",
             type=str,
-            default="http://127.0.1:3000/callback",
+            default="http://127.0.0.1:3000/callback",
         ).strip(),
     }
 
