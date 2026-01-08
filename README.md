@@ -110,7 +110,7 @@ python exportify-cli.py -u spotifyuser123 -u https://open.spotify.com/user/anoth
 ---
 
 ## Building:
-I used [PyInstaller](https://pyinstaller.readthedocs.io/en/stable/) to build the windows binary with this command:
+You can use [PyInstaller](https://pyinstaller.readthedocs.io/en/stable/) to build a binary with this command:
 ```bash
 pyinstaller --onefile .\exportify-cli.py
 ```
