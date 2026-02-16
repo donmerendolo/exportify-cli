@@ -584,7 +584,7 @@ class CustomCommand(click.Command):
     "-o",
     "--output",
     "output_param",
-    default="./playlists",
+    default=None,
     type=click.Path(),
     help="Directory to save exported files (default is ./playlists).",
 )
@@ -687,7 +687,9 @@ def main(
             file_formats.append("json")
     file_formats = list(set(file_formats))
 
-    output = output_param if output_param else cfg.get("exportify-cli", "output")
+    output = (
+        output_param if output_param is not None else cfg.get("exportify-cli", "output")
+    )
     include_uris = (
         uris_flag if uris_flag is not None else cfg.getboolean("exportify-cli", "uris")
     )
