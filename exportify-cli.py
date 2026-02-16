@@ -26,6 +26,7 @@ CLI_DEFAULTS = {
     "no_bar": "false",
     "sort_key": "spotify_default",
     "reverse": "false",
+    "fields": "",
 }
 
 # Default bar format for progress bars
@@ -39,6 +40,45 @@ DESC_LENGTH = 21
 
 # ex: "37i9dQZF1DXcBWIGoYBM5M"
 PLAYLIST_ID_LENGTH = 22
+
+# All exportable fields, in output order
+ALL_HEADERS = [
+    "Position",
+    "Track URI",
+    "Artist URI(s)",
+    "Album URI",
+    "Track Name",
+    "Album Name",
+    "Artist Name(s)",
+    "Release Date",
+    "Duration_ms",
+    "Popularity",
+    "Added By",
+    "Added At",
+    "Record Label",
+    "Track ISRC",
+    "Album UPC",
+]
+
+# Mapping fields args to headers
+FIELD_ALIASES = {
+    "position": "Position",
+    "track_uri": "Track URI",
+    "uri": "Track URI",
+    "artist_uris": "Artist URI(s)",
+    "album_uri": "Album URI",
+    "name": "Track Name",
+    "album": "Album Name",
+    "artist": "Artist Name(s)",
+    "date": "Release Date",
+    "duration": "Duration_ms",
+    "popularity": "Popularity",
+    "added_by": "Added By",
+    "added_at": "Added At",
+    "label": "Record Label",
+    "isrc": "Track ISRC",
+    "upc": "Album UPC",
+}
 
 # Configure logging
 logging.basicConfig(
@@ -206,6 +246,32 @@ def write_file(
         logger.info(f"Exported to {json_path}")
 
 
+def parse_fields(
+    fields_param: str, include_uris: bool, external_ids: bool
+) -> list[str]:
+    """Resolve the list of export headers from --fields or the legacy flags."""
+    # --fields overrides everything
+    if fields_param:
+        headers = []
+        for field in (f.strip() for f in fields_param.split(",") if f.strip()):
+            if field in ALL_HEADERS:
+                headers.append(field)
+            elif field.lower() in FIELD_ALIASES:
+                headers.append(FIELD_ALIASES[field.lower()])
+            else:
+                logger.warning(f"Unknown field: {field}")
+        # Remove duplicates, preserve order
+        return list(dict.fromkeys(headers))
+
+    # Default behavior with existing flags
+    excluded = []
+    if not include_uris:
+        excluded += ["Track URI", "Artist URI(s)", "Album URI"]
+    if not external_ids:
+        excluded += ["Track ISRC", "Album UPC"]
+    return [h for h in ALL_HEADERS if h not in excluded]
+
+
 class SpotifyExporter:
     """Class to handle exporting Spotify playlists."""
 
@@ -213,8 +279,7 @@ class SpotifyExporter:
         self,
         spotify_client: spotipy.Spotify,
         file_formats: list[str],
-        include_uris: bool,
-        external_ids: bool,
+        fields: list[str],
         with_bar: bool,
         sort_key: str | None,
         reverse_order: bool,
@@ -222,8 +287,7 @@ class SpotifyExporter:
         """Initialize the exporter with a Spotify client."""
         self.spotify = spotify_client
         self.file_formats = file_formats
-        self.include_uris = include_uris
-        self.external_ids = external_ids
+        self.fields = fields
         self.with_bar = with_bar
         self.sort_key = sort_key
         self.reverse_order = reverse_order
@@ -453,23 +517,6 @@ class SpotifyExporter:
 
         # Build export data
         export_data = []
-        headers = [
-            "Position",
-            "Track URI",
-            "Artist URI(s)",
-            "Album URI",
-            "Track Name",
-            "Album Name",
-            "Artist Name(s)",
-            "Release Date",
-            "Duration_ms",
-            "Popularity",
-            "Added By",
-            "Added At",
-            "Record Label",
-            "Track ISRC",
-            "Album UPC",
-        ]
         for i, item in enumerate(items, start=1):
             track = item.get("track") or {}
             album = albums.get(track.get("album", {}).get("id"), {})
@@ -480,7 +527,7 @@ class SpotifyExporter:
 
             record = dict(
                 zip(
-                    headers,
+                    ALL_HEADERS,
                     [
                         i,
                         track.get("uri"),
@@ -500,29 +547,16 @@ class SpotifyExporter:
                     ],
                 )
             )
-
+            record = {k: v for k, v in record.items() if k in self.fields}
             export_data.append(record)
 
         if self.sort_key != "spotify_default":
-            export_data.sort(key=lambda x: str(x[self.sort_key]) or "")
+            export_data.sort(key=lambda x: str(x.get(self.sort_key, "")))
 
         if self.reverse_order:
             export_data.reverse()
 
-        if not self.include_uris:
-            headers.pop(headers.index("Artist URI(s)"))
-            headers.pop(headers.index("Album URI"))
-            for record in export_data:
-                record.pop("Artist URI(s)", None)
-                record.pop("Album URI", None)
-        if not self.external_ids:
-            headers.pop(headers.index("Track ISRC"))
-            headers.pop(headers.index("Album UPC"))
-            for record in export_data:
-                record.pop("Track ISRC", None)
-                record.pop("Album UPC", None)
-
-        write_file(filepath, headers, export_data, self.file_formats)
+        write_file(filepath, self.fields, export_data, self.file_formats)
         self.exported_playlists += 1
         self.exported_tracks += len(export_data)
         for ext in self.file_formats:
@@ -631,6 +665,12 @@ class CustomCommand(click.Command):
     is_flag=True,
     help="Reverse the sort order.",
 )
+@optgroup.option(
+    "--fields",
+    "fields_param",
+    default=None,
+    help="Comma-separated list of fields to include (overrides --uris and --external-ids).",
+)
 @click.help_option("-h", "--help")
 @click.version_option(
     get_version(),
@@ -650,6 +690,7 @@ def main(
     format_param: str,
     uris_flag: bool,
     external_ids_flag: bool,
+    fields_param: str,
     no_bar_flag: bool,
     sort_key: str | None,
     reverse_order: bool,
@@ -696,6 +737,7 @@ def main(
         if external_ids_flag is not None
         else cfg.getboolean("exportify-cli", "external_ids")
     )
+
     with_bar = not (
         no_bar_flag
         if no_bar_flag is not None
@@ -704,24 +746,7 @@ def main(
     sort_key = (
         sort_key if sort_key is not None else cfg.get("exportify-cli", "sort_key")
     )
-    keys = [
-        "Position",
-        "Track URI",
-        "Artist URI(s)",
-        "Album URI",
-        "Track Name",
-        "Album Name",
-        "Artist Name(s)",
-        "Release Date",
-        "Duration_ms",
-        "Popularity",
-        "Added By",
-        "Added At",
-        "Record Label",
-        "Track ISRC",
-        "Album UPC",
-        "spotify_default",
-    ]
+    keys = [*ALL_HEADERS, "spotify_default"]
     # Find the actual key that matches case-insensitively
     actual_key = None
     found = False
@@ -747,13 +772,24 @@ def main(
         else cfg.getboolean("exportify-cli", "reverse", fallback=False)
     )
 
+    fields = (
+        fields_param
+        if fields_param is not None
+        else cfg.get("exportify-cli", "fields", fallback="")
+    )
+    fields = parse_fields(fields, include_uris, external_ids)
+
+    if actual_key != "spotify_default" and actual_key not in fields:
+        logger.warning(
+            f"Sort key '{actual_key}' is not in the exported fields; sort is ignored."
+        )
+
     client = init_spotify_client(cfg)
 
     exporter = SpotifyExporter(
         spotify_client=client,
         file_formats=file_formats,
-        include_uris=include_uris,
-        external_ids=external_ids,
+        fields=fields,
         with_bar=with_bar,
         sort_key=actual_key,
         reverse_order=reverse_order,

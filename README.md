@@ -79,6 +79,8 @@ Options:
     --sort-key TEXT               Key to sort tracks by (default is
                                   'spotify_default').
     --reverse                     Reverse the sort order.
+    --fields TEXT                 Comma-separated list of fields to include
+                                  (overrides --uris and --external-ids).
   -h, --help                      Show this message and exit.
   -v, --version                   Show the version and exit.
 ```
@@ -88,6 +90,7 @@ Options:
 - A single command can export multiple playlists by using the `-p` option multiple times. Same applies for the `-u` option.
 - You can export all ***public*** playlists of any user by using the `-u` option with their user ID, URL, or URI. It won't save Liked Songs from that user, as it's private.
 - The default fields are: `Position`, `Track URI`, `Track Name`, `Album Name`, `Artist Name(s)`, `Release Date`, `Duration_ms`, `Popularity`, `Added By`, `Added At`, `Record Label`. With flags, `Album URI(s)`, `Artist URI(s)`, `Track ISRC` and `Album UPC` can be included too. If you want any other field to be added, feel free to open an issue or PR.
+- Use `--fields` to choose the exact columns and their order (this overrides `--uris` and `--external-ids`). It accepts either the full header names above or these short aliases: `position`, `uri` (`track_uri`), `artist_uris`, `album_uri`, `name`, `album`, `artist`, `date`, `duration`, `popularity`, `added_by`, `added_at`, `label`, `isrc`, `upc`. Unknown names are warned about and skipped.
 
 ### Examples:
 
@@ -109,6 +112,9 @@ exportify-cli.exe -f json -f csv -p https://open.spotify.com/playlist/2VqAIceMCz
 
 # Export playlists "Instrumental" and "COCHE" to CSV without progress bar, sorted by Popularity
 python exportify-cli.py -p instr -p COCHE -f csv --no-bar --sort-key "popularity"
+
+# Export only the track name, artist, and date added, in that column order
+python exportify-cli.py -p COCHE --fields name,artist,added_at
 
 # Export all public playlists of user with ID "spotifyuser123" and user with URL "https://open.spotify.com/user/anotheruser456"
 python exportify-cli.py -u spotifyuser123 -u https://open.spotify.com/user/anotheruser456
