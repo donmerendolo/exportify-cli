@@ -1,3 +1,8 @@
+> [!CAUTION]
+> **THIS PROJECT IS UNMAINTAINED**
+>
+> As of [March 9, 2026](https://developer.spotify.com/blog/2026-02-06-update-on-developer-access-and-platform-security), Spotify requires an active Premium subscription to use their API. Since I don't have one, I'm unable to add features or fix bugs. If Spotify reverts this change, I'll continue maintaining it.
+
 # exportify-cli
 ![exportify-cli](image.png)
 
