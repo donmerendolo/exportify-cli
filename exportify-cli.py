@@ -13,7 +13,7 @@ import click
 import spotipy
 from click_option_group import OptionGroup, optgroup
 from pathvalidate import sanitize_filename
-from spotipy.oauth2 import SpotifyOAuth
+from spotipy.oauth2 import SpotifyOauthError, SpotifyPKCE
 from tabulate import tabulate
 from tqdm.auto import tqdm
 
@@ -65,13 +65,18 @@ def get_version():
         return "0.0.0"
 
 
+def get_token_cache_path() -> Path:
+    """Return the path used by Spotipy to cache auth tokens."""
+    return Path(__file__).parent / Path(".cache")
+
+
 def validate_config(config: configparser.ConfigParser) -> bool:
     """Validate that the Spotify section exists and has all required keys, and that the redirect URI is valid."""
     if not config.has_section("spotify"):
         logger.error("Configuration missing [spotify] section.")
         return False
     spotify_cfg = config["spotify"]
-    required = ("client_id", "client_secret", "redirect_uri")
+    required = ("client_id", "redirect_uri")
     missing = [k for k in required if not spotify_cfg.get(k, "").strip()]
     if missing:
         logger.error(
@@ -114,27 +119,17 @@ def load_config(config_path: Path) -> configparser.ConfigParser:
         return config
     # Prompt user to create config
     logger.info(f"Config not found or invalid at {config_path}, creating new.")
-    click.echo("""File "config.cfg" not found or invalid. Let's create it.
-
-1. Go to Spotify Developer Dashboard (https://developer.spotify.com/dashboard).
-2. Create a new app.
-3. Set a name and description for your app.
-4. Add a redirect URI (e.g. http://127.0.0.1:3000/callback).
-
-Now after creating the app, press the Settings button on the upper right corner.
-Copy the Client ID, Client Secret and Redirect URI and paste them below.""")
+    click.echo(
+        """File "config.cfg" not found or invalid. Let's create it.
+Use a Client ID and Redirect URI that belong to the same Spotify app.
+"""
+    )
 
     spotify_cfg = {
         "client_id": click.prompt("Spotify Client ID", type=str).strip(),
-        "client_secret": click.prompt(
-            "Spotify Client Secret",
-            hide_input=True,
-            type=str,
-        ).strip(),
         "redirect_uri": click.prompt(
             "Redirect URI",
             type=str,
-            default="http://127.0.0.1:3000/callback",
         ).strip(),
     }
 
@@ -159,15 +154,35 @@ def clean_playlist_input(playlist: list[str]) -> None:
 
 
 def init_spotify_client(cfg: configparser.ConfigParser) -> spotipy.Spotify:
-    """Initialize Spotify client with OAuth manager."""
+    """Initialize Spotify client with PKCE manager."""
     creds = cfg["spotify"]
-    auth = SpotifyOAuth(
+    auth = SpotifyPKCE(
         client_id=creds["client_id"],
-        client_secret=creds["client_secret"],
         redirect_uri=creds["redirect_uri"],
-        scope="playlist-read-private playlist-read-collaborative user-library-read",
-        cache_path=Path(__file__).parent / Path(".cache"),
+        cache_path=get_token_cache_path(),
     )
+
+    try:
+        token_info = auth.get_cached_token()
+    except SpotifyOauthError as err:
+        logger.warning(
+            f"Cached token is invalid or expired and could not be refreshed: {err}"
+        )
+        token_info = None
+
+    if token_info is None:
+        click.echo("No valid Spotify token cache found. Enter your refresh token.")
+        refresh_token = click.prompt("Spotify refresh token", type=str).strip()
+
+        try:
+            auth.refresh_access_token(refresh_token)
+        except SpotifyOauthError as err:
+            logger.error(f"Failed to authenticate with provided refresh token: {err}")
+            click.echo(
+                "Authentication failed. The refresh token is invalid, expired, or revoked.",
+            )
+            sys.exit(1)
+
     return spotipy.Spotify(auth_manager=auth, retries=10)
 
 
@@ -521,7 +536,7 @@ class CustomCommand(click.Command):
     def format_usage(self, ctx, formatter) -> None:
         # Override the usage display
         formatter.write_text(
-            "Usage: exportify-cli.py (-a | -p NAME|ID|URL|URI [-p ...] | -u ID|URL|URI | -l) [OPTIONS]\n",
+            "Usage: exportify-cli.py (-a | -p NAME|ID|URL|URI [-p ...] | -u ID|URL|URI | -l | --logout) [OPTIONS]\n",
         )
 
 
@@ -550,6 +565,12 @@ class CustomCommand(click.Command):
     "list_only",
     is_flag=True,
     help="List available playlists.",
+)
+@optgroup.option(
+    "--logout",
+    "logout",
+    is_flag=True,
+    help="Delete cached Spotify auth token and exit.",
 )
 @optgroup.option(
     "-c",
@@ -623,6 +644,7 @@ def main(
     playlist: tuple[str, ...],
     user: tuple[str, ...],
     list_only: bool,
+    logout: bool,
     config: None | str,
     output_param: str,
     format_param: str,
@@ -633,6 +655,15 @@ def main(
     reverse_order: bool,
 ) -> None:
     """Export Spotify playlists to CSV or JSON."""
+    if logout:
+        token_cache = get_token_cache_path()
+        if token_cache.exists():
+            token_cache.unlink()
+            click.echo('Logged out successfully. Removed token cache file ".cache".')
+        else:
+            click.echo('No token cache file ".cache" was found.')
+        sys.exit(0)
+
     # If no --all, --playlist, --user or --list options are given, show help
     if not (export_all or playlist or user or list_only):
         click.echo(main.get_help(ctx=click.get_current_context()))
