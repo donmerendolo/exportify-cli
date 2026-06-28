@@ -83,6 +83,7 @@ Options:
   -v, --version                   Show the version and exit.
 ```
 - Default values can be changed in `config.cfg`.
+- Playlists to export can be set in `config.cfg` via the `playlists` key (comma-separated), overridden by `--playlist` when given.
 - Playlist names support partial matching, provided they uniquely identify a single playlist.
 - You can also export a playlist that's not saved in your library by using its ID, URL, or URI.
 - A single command can export multiple playlists by using the `-p` option multiple times. Same applies for the `-u` option.
