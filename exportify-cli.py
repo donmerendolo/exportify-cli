@@ -21,6 +21,7 @@ from tqdm.auto import tqdm
 CLI_DEFAULTS = {
     "format": "csv",
     "output": "./playlists",
+    "playlists": "",
     "uris": "false",
     "external_ids": "false",
     "no_bar": "false",
@@ -664,11 +665,6 @@ def main(
             click.echo('No token cache file ".cache" was found.')
         sys.exit(0)
 
-    # If no --all, --playlist, --user or --list options are given, show help
-    if not (export_all or playlist or user or list_only):
-        click.echo(main.get_help(ctx=click.get_current_context()))
-        sys.exit(1)
-
     if config:
         cfg_path = Path(config).expanduser()
         if cfg_path.is_dir():
@@ -749,6 +745,16 @@ def main(
         else cfg.getboolean("exportify-cli", "reverse", fallback=False)
     )
 
+    playlists = list(playlist)
+    if not playlists:
+        cfg_playlists = cfg.get("exportify-cli", "playlists", fallback="")
+        playlists = [p.strip() for p in cfg_playlists.split(",") if p.strip()]
+
+    # If no --all, --playlist, --user or --list options are given, show help
+    if not (export_all or playlists or user or list_only):
+        click.echo(main.get_help(ctx=click.get_current_context()))
+        sys.exit(1)
+
     client = init_spotify_client(cfg)
 
     exporter = SpotifyExporter(
@@ -761,8 +767,7 @@ def main(
         reverse_order=reverse_order,
     )
 
-    playlist = list(playlist)
-    clean_playlist_input(playlist)
+    clean_playlist_input(playlists)
 
     fetched_playlists = exporter.get_playlists()
 
@@ -819,10 +824,10 @@ def main(
     else:
         # Exact matches first
         for p in fetched_playlists:
-            if p["name"] in playlist or p["id"] in playlist:
+            if p["name"] in playlists or p["id"] in playlists:
                 targets.append(p)
         # For unmatched inputs, try unique prefix match
-        for term in playlist:
+        for term in playlists:
             if any(p for p in targets if p["name"] == term or p["id"] == term):
                 continue
 
