@@ -23,7 +23,7 @@ uv sync
 
 3. **Set up Client ID, a Redirect URI and a refresh token:**
 
-The first time you run exportify-cli, it will guide you through the setup:
+Create a Spotify app in the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard/applications) and copy its Client ID and Redirect URI. The first time you run exportify-cli, it will guide you through the setup:
 
 ```
 File "config.cfg" not found or invalid. Let's create it.
@@ -31,13 +31,7 @@ Use a Client ID and Redirect URI that belong to the same Spotify app.
 
 Spotify Client ID: 
 Redirect URI: 
-```
-
-If no valid `.cache` token is found, exportify-cli asks for a `refresh_token` once to bootstrap authentication. Spotipy then manages and refreshes tokens automatically using the `.cache` file, so you won't have to enter it again unless you log out or revoke access:
-
-```
-No valid Spotify token cache found. Enter your refresh token.
-Spotify refresh token: 
+Enter the URL you were redirected to: 
 ```
 
 If you wish to log out, run:
