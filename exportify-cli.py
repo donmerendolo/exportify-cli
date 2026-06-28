@@ -160,28 +160,14 @@ def init_spotify_client(cfg: configparser.ConfigParser) -> spotipy.Spotify:
         client_id=creds["client_id"],
         redirect_uri=creds["redirect_uri"],
         cache_path=get_token_cache_path(),
+        scope=["user-library-read", "playlist-read-private"],
     )
 
     try:
-        token_info = auth.get_cached_token()
+        auth.get_access_token(check_cache=True)
     except SpotifyOauthError as err:
-        logger.warning(
-            f"Cached token is invalid or expired and could not be refreshed: {err}"
-        )
-        token_info = None
-
-    if token_info is None:
-        click.echo("No valid Spotify token cache found. Enter your refresh token.")
-        refresh_token = click.prompt("Spotify refresh token", type=str).strip()
-
-        try:
-            auth.refresh_access_token(refresh_token)
-        except SpotifyOauthError as err:
-            logger.error(f"Failed to authenticate with provided refresh token: {err}")
-            click.echo(
-                "Authentication failed. The refresh token is invalid, expired, or revoked.",
-            )
-            sys.exit(1)
+        logger.error(f"Spotify authentication failed: {err}")
+        sys.exit(1)
 
     return spotipy.Spotify(auth_manager=auth, retries=10)
 
