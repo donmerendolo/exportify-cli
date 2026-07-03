@@ -114,7 +114,7 @@ exportify-cli.exe -f json -f csv -p https://open.spotify.com/playlist/2VqAIceMCz
 python exportify-cli.py -p instr -p COCHE -f csv --no-bar --sort-key "popularity"
 
 # Export only the track name, artist, and date added, in that column order
-python exportify-cli.py -p COCHE --fields name,artist,added_at
+python exportify-cli.py -p COCHE --fields "name,artist,added_at"
 
 # Export all public playlists of user with ID "spotifyuser123" and user with URL "https://open.spotify.com/user/anotheruser456"
 python exportify-cli.py -u spotifyuser123 -u https://open.spotify.com/user/anotheruser456
