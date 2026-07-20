@@ -10,76 +10,96 @@ permissions:
   contents: write
 
 jobs:
-  build:
+  build-binaries:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
         include:
           - os: ubuntu-latest
-            binary_name: exportify-cli-linux-x64
-          - os: windows-latest
-            binary_name: exportify-cli-windows-x64.exe
+            binary_name: exportify-cli-linux-x86_64
           - os: ubuntu-24.04-arm
             binary_name: exportify-cli-linux-arm64
+          - os: windows-latest
+            binary_name: exportify-cli-windows-x86_64.exe
           - os: windows-11-arm
             binary_name: exportify-cli-windows-arm64.exe
           - os: macos-15-intel
-            binary_name: exportify-cli-macos-intel
+            binary_name: exportify-cli-macos-x86_64
           - os: macos-latest
             binary_name: exportify-cli-macos-arm64
 
     steps:
     - uses: actions/checkout@v5
-    
+
     - name: Install uv
       uses: astral-sh/setup-uv@v7
       with:
         version: 'latest'
-    
+
     - name: Set up Python
-      run: uv python install 3.11
-    
+      run: uv python install 3.13
+
+    - name: Set version from tag
+      if: startsWith(github.ref, 'refs/tags/v')
+      shell: bash
+      run: uv version "${GITHUB_REF#refs/tags/v}"
+
     - name: Sync dependencies
       run: uv sync
 
-    - name: Set version in the code
+    - name: Build executable
       shell: bash
       run: |
-        VERSION=${GITHUB_REF#refs/tags/v}
-        if [[ "$OSTYPE" == "darwin"* ]]; then
-          sed -i '' "s/VERSION_PLACEHOLDER/$VERSION/" exportify-cli.py
-        else
-          sed -i "s/VERSION_PLACEHOLDER/$VERSION/" exportify-cli.py
-        fi
-    
-    - name: Build executable
-      run: |
-        uv add pyinstaller
-        uv run pyinstaller --onefile --name ${{ matrix.binary_name }} exportify-cli.py
-    
+        echo 'from exportify_cli.cli import main; main()' > _entry.py
+        uv run --with pyinstaller pyinstaller --onefile \
+          --name '${{ matrix.binary_name }}' \
+          --collect-submodules exportify_cli \
+          _entry.py
+
     - name: Upload artifact
       uses: actions/upload-artifact@v5
       with:
         name: ${{ matrix.binary_name }}
         path: dist/${{ matrix.binary_name }}
 
-  release:
-    needs: build
+  build-dist:
     runs-on: ubuntu-latest
-    
+    steps:
+    - uses: actions/checkout@v5
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+      with:
+        version: 'latest'
+
+    - name: Set version from tag
+      if: startsWith(github.ref, 'refs/tags/v')
+      run: uv version "${GITHUB_REF#refs/tags/v}"
+
+    - name: Build sdist and wheel
+      run: uv build
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v5
+      with:
+        name: python-dist
+        path: dist/*
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build-binaries, build-dist]
+    runs-on: ubuntu-latest
+
     steps:
     - name: Download all artifacts
       uses: actions/download-artifact@v6
-    
+      with:
+        merge-multiple: true
+        path: dist
+
     - name: Create Release
       uses: softprops/action-gh-release@v2
       with:
-        files: |
-          exportify-cli-linux-x64/exportify-cli-linux-x64
-          exportify-cli-linux-arm64/exportify-cli-linux-arm64
-          exportify-cli-windows-x64.exe/exportify-cli-windows-x64.exe
-          exportify-cli-windows-arm64.exe/exportify-cli-windows-arm64.exe
-          exportify-cli-macos-intel/exportify-cli-macos-intel
-          exportify-cli-macos-arm64/exportify-cli-macos-arm64
+        files: dist/*
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
