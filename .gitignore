@@ -2,9 +2,12 @@ __pycache__/
 .ruff_cache
 .venv
 config.cfg
+config.toml
 .cache
 playlists/
 *.log
 dist/
 build/
 *.spec
+**/*.csv
+**/*.json
