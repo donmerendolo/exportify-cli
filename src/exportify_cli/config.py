@@ -26,7 +26,7 @@ CLI_DEFAULTS: dict[str, Any] = {
     "playlists": [],
     "users": [],
     "no_bar": False,
-    "sort_key": "spotify_default",
+    "sort_key": ["Position"],
     "reverse": False,
     "fields": [],
 }
@@ -65,8 +65,9 @@ users = []
 # Hide the progress bar.
 no_bar = false
 
-# Key to sort tracks by ("spotify_default" keeps Spotify's order).
-sort_key = "spotify_default"
+# Key(s) to sort tracks by ("Position" keeps Spotify's order).
+# Later keys break ties, e.g. ["Popularity", "Track Name"].
+sort_key = ["Position"]
 
 # Reverse the sort order.
 reverse = false

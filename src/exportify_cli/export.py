@@ -154,14 +154,14 @@ class SpotifyExporter:
         file_formats: list[str],
         fields: list[str],
         with_bar: bool,
-        sort_key: str,
+        sort_keys: list[str],
         reverse_order: bool,
     ) -> None:
         self.spotify = spotify_client
         self.file_formats = file_formats
         self.fields = fields
         self.with_bar = with_bar
-        self.sort_key = sort_key
+        self.sort_keys = sort_keys
         self.reverse_order = reverse_order
         self.exported_playlists = 0
         self.exported_tracks = 0
@@ -359,8 +359,9 @@ class SpotifyExporter:
         export_data = [
             self._build_record(i, item, albums) for i, item in enumerate(items, start=1)
         ]
-
-        export_data.sort(key=lambda x: sort_value(x.get(self.sort_key)))
+        export_data.sort(
+            key=lambda x: tuple(sort_value(x.get(k)) for k in self.sort_keys)
+        )
         if self.reverse_order:
             export_data.reverse()
 

@@ -71,23 +71,28 @@ def resolve_formats(format_param: tuple[str, ...], cfg: dict) -> list[str]:
     return list(dict.fromkeys(formats))
 
 
-def resolve_sort_key(sort_key: str) -> str:
-    """Match sort parameter with key or alias."""
+def resolve_sort_keys(sort_keys: list[str]) -> list[str]:
+    """Match each sort parameter with a key or alias; later keys break ties."""
 
     def normalize(s: str) -> str:
         return re.sub(r"[\s_()]", "", s.lower())
 
-    for key in ALL_HEADERS:
-        if normalize(key) == normalize(sort_key):
-            return key
-    for key in FIELD_ALIASES:
-        if normalize(key) == normalize(sort_key):
-            return FIELD_ALIASES[key]
-    click.echo(
-        f"Error: sort key '{sort_key}' not found. Available keys: {ALL_HEADERS}.",
-        err=True,
-    )
-    sys.exit(1)
+    def resolve_one(sort_key: str) -> str:
+        for key in ALL_HEADERS:
+            if normalize(key) == normalize(sort_key):
+                return key
+        for key in FIELD_ALIASES:
+            if normalize(key) == normalize(sort_key):
+                return FIELD_ALIASES[key]
+        click.echo(
+            f"Error: sort key '{sort_key}' not found. Available keys: {ALL_HEADERS}.",
+            err=True,
+        )
+        sys.exit(1)
+
+    resolved = [resolve_one(k.strip()) for k in sort_keys if k.strip()]
+    # Deduplicate, preserving order
+    return list(dict.fromkeys(resolved))
 
 
 def init_spotify_client(cfg: dict, cache_path: Path) -> spotipy.Spotify:
@@ -285,8 +290,9 @@ class CustomCommand(click.Command):
     "-s",
     "--sort-key",
     "sort_key",
-    default=None,
-    help="Key to sort tracks by (default is 'spotify_default').",
+    multiple=True,
+    help="Key to sort tracks by (default is 'spotify_default'); "
+    "repeatable or comma-separated, later keys break ties.",
 )
 @optgroup.option(
     "--reverse",
@@ -322,7 +328,7 @@ def main(
     external_ids_flag: bool | None,
     fields_param: str | None,
     no_bar_flag: bool | None,
-    sort_key: str | None,
+    sort_key: tuple[str, ...],
     reverse_order: bool | None,
 ) -> None:
     """Export Spotify playlists to CSV or JSON."""
@@ -358,19 +364,21 @@ def main(
             "--uris and --external-ids are deprecated; use --fields or the config's 'fields' instead."
         )
     with_bar = not (no_bar_flag if no_bar_flag is not None else opt(cfg, "no_bar"))
-    actual_key = resolve_sort_key(
-        sort_key if sort_key is not None else opt(cfg, "sort_key")
+    raw_sort_keys = [k for key in sort_key for k in key.split(",")] or opt(
+        cfg, "sort_key"
     )
+    actual_keys = resolve_sort_keys(raw_sort_keys) or ["Position"]
     reverse = reverse_order if reverse_order is not None else opt(cfg, "reverse")
     fields = parse_fields(
         fields_param.split(",") if fields_param is not None else opt(cfg, "fields"),
         include_uris,
         external_ids,
     )
-    if actual_key not in fields:
-        logger.warning(
-            f"Sort key '{actual_key}' is not in the exported fields; sort is ignored."
-        )
+    for key in actual_keys:
+        if key not in fields:
+            logger.warning(
+                f"Sort key '{key}' is not in the exported fields; it has no effect."
+            )
 
     playlists = list(playlist) or opt(cfg, "playlists")
     users = list(user) or opt(cfg, "users")
@@ -386,7 +394,7 @@ def main(
         file_formats=file_formats,
         fields=fields,
         with_bar=with_bar,
-        sort_key=actual_key,
+        sort_keys=actual_keys,
         reverse_order=reverse,
     )
     fetched_playlists = exporter.get_playlists()
