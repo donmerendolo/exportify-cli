@@ -158,7 +158,7 @@ uv run pytest
 
 ## Building:
 
-You can use [PyInstaller](https://pyinstaller.readthedocs.io/en/stable/) to build a binary (it's no longer a project dependency, so install it separately):
+You can use [PyInstaller](https://pyinstaller.readthedocs.io/en/stable/) to build a binary:
 
 ```bash
 uv run --with pyinstaller pyinstaller --onefile --name exportify-cli src/exportify_cli/cli.py
