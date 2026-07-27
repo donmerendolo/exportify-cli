@@ -116,13 +116,13 @@ def test_resolve_formats_invalid_errors():
 
 
 def test_resolve_sort_key_case_insensitive():
-    assert cli.resolve_sort_key("popularity") == "Popularity"
-    assert cli.resolve_sort_key("artist name(s)") == "Artist Name(s)"
+    assert cli.resolve_sort_keys(["popularity"]) == ["Popularity"]
+    assert cli.resolve_sort_keys(["artist name(s)"]) == ["Artist Name(s)"]
 
 
 def test_resolve_sort_key_invalid_exits():
     with pytest.raises(SystemExit):
-        cli.resolve_sort_key("nope")
+        cli.resolve_sort_keys(["nope"])
 
 
 # --- config ---
