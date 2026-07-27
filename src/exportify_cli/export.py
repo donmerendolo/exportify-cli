@@ -71,6 +71,23 @@ URI_HEADERS = ["Track URI", "Artist URI(s)", "Album URI"]
 EXTERNAL_ID_HEADERS = ["Track ISRC", "Album UPC"]
 
 
+def _track_of(item: dict) -> dict | None:
+    """Get a playlist item's track/episode payload.
+
+    Spotify's February 2026 API migration renamed this field from 'track'
+    to 'item' (see the "Get Playlist Items" endpoint). Support both so
+    exports keep working regardless of which shape the API returns.
+    """
+    return item.get("item") or item.get("track")
+
+
+def _track_count(playlist: dict) -> int | None:
+    """Get a playlist's track count, from either the pre- or post-migration
+    summary field name ('tracks' -> 'items')."""
+    summary = playlist.get("items") or playlist.get("tracks") or {}
+    return summary.get("total")
+
+
 def parse_fields(
     fields_value: list[str], include_uris: bool, external_ids: bool
 ) -> list[str]:
@@ -209,7 +226,11 @@ class SpotifyExporter:
 
     def fetch_albums(self, album_ids: list[str], already_cached: int = 0) -> list[dict]:
         """Fetch album details in batches of 20; IDs that aren't albums are
-        retried as shows (podcasts saved in playlists)."""
+        retried as shows (podcasts saved in playlists).
+
+        Falls back to fetching one album at a time if the bulk 'Get Several
+        Albums' endpoint is unavailable (some Development Mode apps get a
+        403 on it while the single-album endpoint still works)."""
         items: list[dict] = []
         total = len(album_ids) + already_cached
         pbar = self._progress_bar(total, "Fetching album details: ", "album", True)
@@ -218,7 +239,19 @@ class SpotifyExporter:
 
         for start in range(0, len(album_ids), 20):
             batch = album_ids[start : start + 20]
-            page_items = [a for a in self.spotify.albums(batch).get("albums", []) if a]
+            try:
+                page_items = [a for a in self.spotify.albums(batch).get("albums", []) if a]
+            except spotipy.SpotifyException as e:
+                logger.warning(
+                    f"Bulk album fetch failed ({e}); "
+                    f"retrying {len(batch)} album(s) one by one."
+                )
+                page_items = []
+                for album_id in batch:
+                    try:
+                        page_items.append(self.spotify.album(album_id))
+                    except spotipy.SpotifyException as single_e:
+                        logger.warning(f"Failed to fetch album {album_id}: {single_e}")
 
             fetched_ids = {a["id"] for a in page_items if a.get("id")}
             for show_id in set(batch) - fetched_ids:
@@ -239,7 +272,7 @@ class SpotifyExporter:
 
     def _fix_episode(self, item: dict) -> None:
         """Fill in release date and artist names for podcast episodes."""
-        track = item.get("track")
+        track = _track_of(item)
         if not track or track.get("type") != "episode":
             return
         episode = self.spotify.episode(track.get("id"))
@@ -285,11 +318,11 @@ class SpotifyExporter:
     def _album_lookup(self, items: list[dict]) -> dict[str, dict]:
         """Batch-fetch album details for all tracks, using the cache."""
         album_ids = {
-            i["track"]["album"]["id"]
+            _track_of(i)["album"]["id"]
             for i in items
-            if i.get("track")
-            and i["track"].get("album")
-            and i["track"]["album"].get("id")
+            if _track_of(i)
+            and _track_of(i).get("album")
+            and _track_of(i)["album"].get("id")
         }
         ids_to_fetch = [aid for aid in album_ids if aid not in self.album_cache]
         if ids_to_fetch:
@@ -310,13 +343,14 @@ class SpotifyExporter:
         }
 
     def _build_record(self, position: int, item: dict, albums: dict) -> dict:
-        # Playlists can contain items with 'track': None (seen in the wild;
-        # no idea how it got generated). We keep them as mostly-empty rows
-        # instead of dropping them: they carry no track info, but one could
-        # hypothetically do detective work out of 'added_at'/'added_by' to
-        # find what they originally were.
-        track = item.get("track") or {}
-        album = albums.get(track.get("album", {}).get("id"), {})
+        # Playlists can contain items with 'track'/'item': None (seen in the
+        # wild; no idea how it got generated). We keep them as mostly-empty
+        # rows instead of dropping them: they carry no track info, but one
+        # could hypothetically do detective work out of 'added_at'/'added_by'
+        # to find what they originally were.
+        track = _track_of(item) or {}
+        track_album = track.get("album") or {}
+        album = albums.get(track_album.get("id"), {})
         artists = [a.get("name") for a in track.get("artists", []) if a.get("name")]
         artist_uris = [a.get("uri") for a in track.get("artists", []) if a.get("uri")]
         record = dict(
@@ -326,11 +360,13 @@ class SpotifyExporter:
                     position,
                     track.get("uri"),
                     artist_uris,
-                    album.get("uri"),
+                    album.get("uri") or track_album.get("uri"),
                     track.get("name"),
-                    album.get("name"),
+                    album.get("name") or track_album.get("name"),
                     artists,
-                    album.get("release_date") or track.get("release_date"),
+                    album.get("release_date")
+                    or track_album.get("release_date")
+                    or track.get("release_date"),
                     track.get("duration_ms"),
                     track.get("popularity"),
                     item.get("added_by", {}).get("id"),

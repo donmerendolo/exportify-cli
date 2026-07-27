@@ -31,6 +31,31 @@ def test_parse_fields_unknown_ignored():
     assert export.parse_fields(["name", "bogus"], False, False) == ["Track Name"]
 
 
+# --- playlist item / track field (Feb 2026 API migration) ---
+
+
+def test_track_of_prefers_new_item_key():
+    assert export._track_of({"item": {"name": "New"}, "track": {"name": "Old"}}) == {
+        "name": "New"
+    }
+
+
+def test_track_of_falls_back_to_legacy_track_key():
+    assert export._track_of({"track": {"name": "Old"}}) == {"name": "Old"}
+
+
+def test_track_of_none_when_neither_key_present():
+    assert export._track_of({"added_at": "2024-01-01"}) is None
+
+
+def test_track_count_prefers_new_items_key():
+    assert export._track_count({"items": {"total": 5}, "tracks": {"total": 1}}) == 5
+
+
+def test_track_count_falls_back_to_legacy_tracks_key():
+    assert export._track_count({"tracks": {"total": 3}}) == 3
+
+
 # --- sorting ---
 
 

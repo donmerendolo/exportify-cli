@@ -22,7 +22,7 @@ from .config import (
     opt,
     token_cache_path,
 )
-from .export import ALL_HEADERS, FIELD_ALIASES, SpotifyExporter, parse_fields
+from .export import ALL_HEADERS, FIELD_ALIASES, SpotifyExporter, _track_count, parse_fields
 
 logging.basicConfig(
     level=logging.WARNING,
@@ -114,7 +114,7 @@ def init_spotify_client(cfg: dict, cache_path: Path) -> spotipy.Spotify:
 
 
 def list_playlists(playlists: list[dict]) -> None:
-    data = [[p["name"], p["id"], p["tracks"]["total"]] for p in playlists]
+    data = [[p["name"], p["id"], _track_count(p)] for p in playlists]
     # shutil (unlike os.get_terminal_size) has a fallback when not a tty
     terminal_width = shutil.get_terminal_size().columns
     click.echo(
