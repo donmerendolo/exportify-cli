@@ -8,19 +8,28 @@ This tool can export all saved playlists, including liked songs.
 
 ## Installation:
 
-**You can also download a binary from the [releases page](https://github.com/donmerendolo/exportify-cli/releases/latest) and skip steps 1 and 2.**
-
 Requires Python 3.13+.
 
-1. **Clone this repository:**
+**Option 1: Install from PyPI (recommended)**
+
+```bash
+uv tool install exportify-cli
+```
+
+Or with pip:
+
+```bash
+pip install exportify-cli
+```
+
+**Option 2: Download a binary**
+
+Grab a prebuilt binary from the [releases page](https://github.com/donmerendolo/exportify-cli/releases/latest) — no Python required.
+
+**Option 3: Clone and install from source**
 
 ```bash
 git clone https://github.com/donmerendolo/exportify-cli.git
-```
-
-2. **Install the required packages:**
-
-```bash
 cd exportify-cli
 uv sync
 ```
@@ -31,7 +40,7 @@ You can then run the tool with `uv run exportify-cli`, or install it globally as
 uv tool install .
 ```
 
-3. **Set up Client ID and Redirect URI:**
+## Set up Client ID and Redirect URI:
 
 Create a Spotify app in the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard/applications) and copy its Client ID and Redirect URI. The first time you run exportify-cli, it will guide you through the setup and create `config.toml` for you:
 
@@ -163,3 +172,4 @@ You can use [PyInstaller](https://pyinstaller.readthedocs.io/en/stable/) to buil
 ```bash
 uv run --with pyinstaller pyinstaller --onefile --name exportify-cli src/exportify_cli/cli.py
 ```
+
