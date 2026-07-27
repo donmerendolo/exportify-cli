@@ -1,6 +1,6 @@
 [project]
 name = "exportify-cli"
-version = "1.0.0"
+version = "1.0.1"
 description = "Export Spotify playlists to CSV or JSON from the command line."
 requires-python = ">=3.13"
 license = "GPL-3.0-only"

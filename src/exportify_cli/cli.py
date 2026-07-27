@@ -22,7 +22,13 @@ from .config import (
     opt,
     token_cache_path,
 )
-from .export import ALL_HEADERS, FIELD_ALIASES, SpotifyExporter, _track_count, parse_fields
+from .export import (
+    ALL_HEADERS,
+    FIELD_ALIASES,
+    SpotifyExporter,
+    _track_count,
+    parse_fields,
+)
 
 logging.basicConfig(
     level=logging.WARNING,

@@ -4,7 +4,6 @@ import pytest
 
 from exportify_cli import cli, config, export
 
-
 # --- fields ---
 
 

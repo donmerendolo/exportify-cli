@@ -4,8 +4,9 @@ import csv
 import json
 import logging
 import sys
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 import click
 import spotipy
@@ -240,7 +241,9 @@ class SpotifyExporter:
         for start in range(0, len(album_ids), 20):
             batch = album_ids[start : start + 20]
             try:
-                page_items = [a for a in self.spotify.albums(batch).get("albums", []) if a]
+                page_items = [
+                    a for a in self.spotify.albums(batch).get("albums", []) if a
+                ]
             except spotipy.SpotifyException as e:
                 logger.warning(
                     f"Bulk album fetch failed ({e}); "
