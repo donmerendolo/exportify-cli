@@ -2,15 +2,45 @@ name: Build and Release
 
 on:
   push:
-    tags: 'v*'
+    branches: [master]
+    paths: [pyproject.toml]
   workflow_dispatch:
 
 permissions:
-  actions: none
-  contents: write
+  contents: read
 
 jobs:
+  check-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+      is_new: ${{ steps.check.outputs.is_new }}
+    steps:
+    - uses: actions/checkout@v5
+      with:
+        fetch-depth: 0
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+      with:
+        version: 'latest'
+
+    - name: Check if version is new
+      id: check
+      run: |
+        VERSION=$(uv version --short)
+        echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+        if git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null; then
+          echo "Tag v$VERSION already exists, skipping release"
+          echo "is_new=false" >> "$GITHUB_OUTPUT"
+        else
+          echo "New version: $VERSION"
+          echo "is_new=true" >> "$GITHUB_OUTPUT"
+        fi
+
   build-binaries:
+    needs: check-version
+    if: needs.check-version.outputs.is_new == 'true'
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -39,11 +69,6 @@ jobs:
     - name: Set up Python
       run: uv python install 3.13
 
-    - name: Set version from tag
-      if: startsWith(github.ref, 'refs/tags/v')
-      shell: bash
-      run: uv version "${GITHUB_REF#refs/tags/v}"
-
     - name: Sync dependencies
       run: uv sync
 
@@ -63,6 +88,8 @@ jobs:
         path: dist/${{ matrix.binary_name }}
 
   build-dist:
+    needs: check-version
+    if: needs.check-version.outputs.is_new == 'true'
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v5
@@ -71,10 +98,6 @@ jobs:
       uses: astral-sh/setup-uv@v7
       with:
         version: 'latest'
-
-    - name: Set version from tag
-      if: startsWith(github.ref, 'refs/tags/v')
-      run: uv version "${GITHUB_REF#refs/tags/v}"
 
     - name: Build sdist and wheel
       run: uv build
@@ -85,10 +108,36 @@ jobs:
         name: python-dist
         path: dist/*
 
-  release:
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: [build-binaries, build-dist]
+  publish-pypi:
+    needs: [check-version, build-dist]
     runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/exportify-cli/
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+    - name: Download dist
+      uses: actions/download-artifact@v6
+      with:
+        name: python-dist
+        path: dist
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+      with:
+        version: 'latest'
+
+    - name: Publish to PyPI
+      run: uv publish --trusted-publishing always --check-url https://pypi.org/simple/
+
+  release:
+    needs: [check-version, build-binaries, build-dist, publish-pypi]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
     - name: Download all artifacts
@@ -97,9 +146,12 @@ jobs:
         merge-multiple: true
         path: dist
 
-    - name: Create Release
+    - name: Create release and tag
       uses: softprops/action-gh-release@v2
       with:
+        tag_name: v${{ needs.check-version.outputs.version }}
+        target_commitish: ${{ github.sha }}
         files: dist/*
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
