@@ -64,7 +64,16 @@ def clean_user_input(users: list[str]) -> list[str]:
 def resolve_formats(format_param: tuple[str, ...], cfg: dict) -> list[str]:
     """Resolve output formats, --format > config > default."""
     if format_param:
-        return list(dict.fromkeys(format_param))
+        formats = [f.lower() for f in format_param]
+        invalid = [f for f in formats if f not in VALID_FORMATS]
+        if invalid:
+            click.echo(
+                f"Error: invalid format(s): {', '.join(invalid)}. "
+                f"Valid formats: {', '.join(sorted(VALID_FORMATS))}.",
+                err=True,
+            )
+            sys.exit(1)
+        return list(dict.fromkeys(formats))
     formats = [f.lower() for f in opt(cfg, "format")]
     invalid = [f for f in formats if f not in VALID_FORMATS]
     if invalid or not formats:
@@ -272,7 +281,7 @@ class CustomCommand(click.Command):
     "--format",
     "format_param",
     multiple=True,
-    type=click.Choice(sorted(VALID_FORMATS)),
+    type=click.Choice(sorted(VALID_FORMATS), case_sensitive=False),
     help="Output file format (defaults to 'csv'); repeatable.",
 )
 @optgroup.option(
